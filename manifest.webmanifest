@@ -3,7 +3,7 @@
   "short_name": "ikura",
   "description": "名画を白・灰・黒のマス目で写して、明暗を見る目を鍛える",
   "lang": "ja",
-  "id": "ikura",
+  "id": "ikura/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

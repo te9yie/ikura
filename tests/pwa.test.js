@@ -134,8 +134,8 @@ test("routeOf は scope からの相対パスで扱いを決める", () => {
 });
 
 test("manifest のパスは相対で、色は style.css の --bg と同じ", () => {
-  // id は start_url のオリジンを基準に解決されるので "ikura" は /ikura になり、start_url の /ikura/ と違う値になる
-  assert.equal(manifest.id, "ikura");
+  // id は start_url のオリジンを基準に解決されるので、"ikura/" は start_url と同じ /ikura/ になる
+  assert.equal(manifest.id, "ikura/");
   assert.equal(manifest.start_url, "./");
   assert.equal(manifest.scope, "./");
   for (const icon of manifest.icons) assert.doesNotMatch(icon.src, /^(\/|http)/, icon.src);
