@@ -17,13 +17,27 @@
         <span class="meta"></span>
       </figcaption>
     </figure>
+    <canvas id="grid"></canvas>
     <div class="load-error" hidden>
       <p>作品の一覧を読めませんでした</p>
       <button type="button" id="retry">もう一度</button>
     </div>
   </main>
   <footer class="toolbar">
+    <div class="group" role="group" aria-label="色">
+      <button type="button" class="swatch" data-color="2" aria-label="明" aria-pressed="false"></button>
+      <button type="button" class="swatch" data-color="1" aria-label="中" aria-pressed="false"></button>
+      <button type="button" class="swatch" data-color="0" aria-label="暗" aria-pressed="true"></button>
+    </div>
+    <div class="group" role="group" aria-label="道具">
+      <button type="button" data-tool="brush1" aria-pressed="false">1マス</button>
+      <button type="button" data-tool="brush3" aria-pressed="true">3×3</button>
+      <button type="button" data-tool="fill" aria-pressed="false">塗りつぶし</button>
+    </div>
+    <button type="button" id="undo" disabled>戻す</button>
+    <span class="timer" role="timer">0:00</span>
     <button type="button" id="swap">別の絵</button>
+    <button type="button" id="check" disabled>答え合わせ</button>
   </footer>
 </body>
 </html>

@@ -61,9 +61,25 @@ test("localDateKey はローカルの年月日を返す", () => {
   assert.equal(localDateKey(new Date(2026, 9, 7, 6, 0)), "2026-10-07");
   assert.equal(localDateKey(new Date(2026, 0, 1, 0, 0)), "2026-01-01");
   assert.equal(localDateKey(new Date(2026, 11, 31, 23, 59)), "2026-12-31");
-  // 夏時間の切り替わりの日。アメリカの時間帯では 2:30 がなく 3:30 になるが、日付は変わらない
-  assert.equal(localDateKey(new Date(2026, 2, 29, 0, 30)), "2026-03-29");
-  assert.equal(localDateKey(new Date(2026, 2, 8, 2, 30)), "2026-03-08");
+});
+
+// 日本時間には夏時間がないので、テストの中で時間帯を切り替える。
+// node --test はファイルごとに別のプロセスで動くので、ほかのテストのファイルには漏れない
+test("localDateKey は夏時間の切り替わりの日でも年月日を返す", () => {
+  const saved = process.env.TZ;
+  try {
+    process.env.TZ = "America/New_York";
+    // 2:30 はなく 3:30 になるが、日付は変わらない
+    assert.equal(new Date(2026, 2, 8, 2, 30).getHours(), 3, "夏時間の時間帯に切り替わっていない");
+    assert.equal(localDateKey(new Date(2026, 2, 8, 2, 30)), "2026-03-08");
+    assert.equal(localDateKey(new Date(2026, 2, 8, 0, 30)), "2026-03-08");
+    process.env.TZ = "Europe/Berlin";
+    assert.equal(localDateKey(new Date(2026, 2, 29, 2, 30)), "2026-03-29");
+    assert.equal(localDateKey(new Date(2026, 9, 25, 2, 30)), "2026-10-25");
+  } finally {
+    if (saved === undefined) delete process.env.TZ;
+    else process.env.TZ = saved;
+  }
 });
 
 test("readSwap は今日の値なら id を返し、キーを残す", () => {

@@ -3,6 +3,14 @@
   --text: #c8c8c8;
   --text-sub: #999999;
   --button: #444444;
+  --selected: #dddddd;
+  /* マスの3値。canvas の描画もこの値を読む */
+  --v0: #000000;
+  --v1: #808080;
+  --v2: #eeeeee;
+  --line: #4d4d4d;
+  --ikura: #ea5a2a;
+  --on-ikura: #222222;
   --gap: 12px;
   --caption-height: 56px;
 }
@@ -28,7 +36,7 @@ body {
   flex-direction: column;
 }
 
-/* この大きさに絵を収める。TODO 3 で、ここを測ってマスの大きさを決める */
+/* app.js がこの大きさを測ってマスの一辺を決め、--cell・--cols・--rows を付ける */
 main {
   flex: 1;
   min-height: 0;
@@ -37,24 +45,28 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  container-type: size;
+  gap: var(--gap);
 }
 
 .model {
+  flex: none;
   margin: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.model img {
+/* お手本とマス目は同じ大きさにする */
+.model img,
+#grid {
   display: block;
-  max-width: 100cqw;
-  max-height: calc(100cqh - var(--caption-height));
+  width: calc(var(--cell) * var(--cols));
+  height: calc(var(--cell) * var(--rows));
 }
 
-/* 読み込みの途中と、読めなかったときは、壊れた画像の印と alt の文字を出さない */
-body:not([data-view="paint"]) .model img {
+/* 読み込みの途中と、読めなかったときは、壊れた画像の印と alt の文字を出さず、マス目も出さない */
+body:not([data-view="paint"]) .model img,
+body:not([data-view="paint"]) #grid {
   display: none;
 }
 
@@ -90,16 +102,39 @@ body:not([data-view="paint"]) .model img {
   text-overflow: ellipsis;
 }
 
+/* 下の余白をキャプションの高さにして、お手本と真ん中でそろえたときに上端がそろうようにする */
+#grid {
+  flex: none;
+  margin-bottom: var(--caption-height);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .load-error {
   text-align: center;
 }
 
+/* 狭い画面での2段の並びは TODO 5 で決める。それまでは収まらない分を折り返す */
 .toolbar {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding: var(--gap) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
+}
+
+.toolbar .group {
+  display: flex;
+  gap: 8px;
+}
+
+.timer {
+  margin-left: auto;
+  padding: 0 8px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 
 button {
@@ -111,4 +146,35 @@ button {
   color: var(--text);
   font: inherit;
   font-size: 15px;
+}
+
+button:disabled {
+  opacity: 0.4;
+}
+
+button[aria-pressed="true"] {
+  outline: 2px solid var(--selected);
+  outline-offset: 2px;
+}
+
+.swatch {
+  width: 44px;
+  padding: 0;
+}
+
+.swatch[data-color="0"] {
+  background: var(--v0);
+}
+
+.swatch[data-color="1"] {
+  background: var(--v1);
+}
+
+.swatch[data-color="2"] {
+  background: var(--v2);
+}
+
+#check {
+  background: var(--ikura);
+  color: var(--on-ikura);
 }
