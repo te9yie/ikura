@@ -7,7 +7,7 @@
 - サーバーを使わない。GitHub Pagesで配る静的なファイルだけで動かす。
 - ビルドの道具（バンドラー、TypeScriptのコンパイラーなど）を入れない。ブラウザで動くコードは、HTML・CSS・ES modulesのJavaScriptをそのまま置く。npmの依存も入れない。
 - アプリから外部のAPIを呼ばない。作品は `scripts/` のスクリプトで先に取ってきて、`artworks/` からだけ読む。
-- GitHub Pagesではサブパス（`/ikura/`）で配信されるので、`manifest.webmanifest` の `start_url`・`scope`、service worker、画像のパスは相対パスで書く。
+- GitHub Pagesではサブパス（`/ikura/`）で配信されるので、`app.webmanifest` の `start_url`・`scope`、service worker、画像のパスは相対パスで書く。
 - `README.md` の「やらないこと」にあることは作らない。要りそうになったら、作る前にユーザーに聞く。
 - 仕様を変えたら `README.md` も同じコミットで直す。`TODO.md` は、終えた項目にチェックを付ける。
 

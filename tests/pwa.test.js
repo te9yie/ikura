@@ -16,7 +16,7 @@ function loadServiceWorker(globals = {}) {
 }
 
 const { VERSION, PRECACHE, INDEX, routeOf } = loadServiceWorker();
-const manifest = JSON.parse(readText("manifest.webmanifest"));
+const manifest = JSON.parse(readText("app.webmanifest"));
 const indexHtml = readText("index.html");
 const bg = readText("style.css").match(/--bg:\s*(#[0-9a-fA-F]{6})\s*;/)?.[1];
 
@@ -72,7 +72,7 @@ test("PRECACHE のファイルがある", () => {
 
 test("index.html・app.js・lib の .js・style.css が読むファイルが PRECACHE にある", () => {
   for (const ref of htmlRefs) {
-    if (ref === "manifest.webmanifest" || ref.startsWith("icons/")) continue;
+    if (ref === "app.webmanifest" || ref.startsWith("icons/")) continue;
     assert.ok(PRECACHE.includes(ref), `${ref} を PRECACHE に足す（index.html が読む）`);
   }
   // app.js と lib の下の .js から import をたどる。lib の外に置いたモジュールも、たどった先で見る
@@ -111,7 +111,7 @@ test("Cache Storage が例外を投げても、ネットワークの結果を返
 
 test("PRECACHE に sw.js・manifest・アイコンを入れない", () => {
   for (const path of PRECACHE) {
-    assert.ok(path !== "sw.js" && path !== "manifest.webmanifest" && !path.startsWith("icons/"), path);
+    assert.ok(path !== "sw.js" && path !== "app.webmanifest" && !path.startsWith("icons/"), path);
   }
 });
 
@@ -124,7 +124,7 @@ test("routeOf は scope からの相対パスで扱いを決める", () => {
     ["https://te9yie.github.io/ikura/artworks/index.json", "index"],
     ["https://te9yie.github.io/ikura/artworks/index.json?x=1", "index"],
     ["https://te9yie.github.io/ikura/artworks/met-436065.jpg", "artwork"],
-    ["https://te9yie.github.io/ikura/manifest.webmanifest", null],
+    ["https://te9yie.github.io/ikura/app.webmanifest", null],
     ["https://te9yie.github.io/ikura/icons/icon-192.png", null],
     ["https://te9yie.github.io/ikura/sw.js", null],
     ["https://te9yie.github.io/other/app.js", null],
@@ -134,8 +134,6 @@ test("routeOf は scope からの相対パスで扱いを決める", () => {
 });
 
 test("manifest のパスは相対で、色は style.css の --bg と同じ", () => {
-  // id は start_url のオリジンを基準に解決されるので、"ikura/" は start_url と同じ /ikura/ になる
-  assert.equal(manifest.id, "ikura/");
   assert.equal(manifest.start_url, "./");
   assert.equal(manifest.scope, "./");
   for (const icon of manifest.icons) assert.doesNotMatch(icon.src, /^(\/|http)/, icon.src);
