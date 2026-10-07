@@ -376,7 +376,6 @@ function endStroke(event) {
 
 els.grid.addEventListener("pointerup", endStroke);
 els.grid.addEventListener("pointercancel", endStroke);
-els.grid.addEventListener("contextmenu", (event) => event.preventDefault());
 
 for (const button of els.swatches) {
   button.addEventListener("click", () => {
@@ -422,6 +421,15 @@ new ResizeObserver(([entry]) => {
   mainSize = { width: entry.contentRect.width, height: entry.contentRect.height };
   updateLayout();
 }).observe(els.main);
+
+// iOS Safari は viewport の user-scalable=no を無視するので、ピンチ拡大をここで止める
+for (const type of ["gesturestart", "gesturechange"]) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
+
+// Android の Chrome は -webkit-touch-callout を知らず、長押しで画像の保存メニューを出すので、
+// マス目に限らずページのどこでもメニューを出さない
+document.addEventListener("contextmenu", (event) => event.preventDefault());
 
 setInterval(updateTimerText, 250);
 

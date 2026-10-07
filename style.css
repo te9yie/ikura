@@ -19,11 +19,23 @@
   display: none !important;
 }
 
+/* 指で塗る間に、ページのスクロール・拡大、iOSのバウンス、Androidの引っぱって更新、
+   長押しでの文字選択と画像の保存メニュー、タップの影、横向きでの文字の拡大が起きないようにする。
+   iOS Safari のピンチ拡大は viewport の指定を無視するので、app.js で gesturestart も止める。
+   Android の Chrome は -webkit-touch-callout を知らないので、長押しのメニューは app.js で contextmenu を止める */
 html,
 body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
@@ -36,7 +48,8 @@ body {
   flex-direction: column;
 }
 
-/* app.js がこの大きさを測ってマスの一辺を決め、--cell・--cols・--rows を付ける */
+/* app.js がこの大きさを測ってマスの一辺を決め、--cell・--cols・--rows と data-direction を付ける。
+   data-direction は、お手本とマス目を左右に並べるなら row、上下なら column */
 main {
   flex: 1;
   min-height: 0;
@@ -46,6 +59,11 @@ main {
   align-items: center;
   justify-content: center;
   gap: var(--gap);
+}
+
+/* 上下のときは、お手本、キャプション、マス目の順にする */
+main[data-direction="column"] {
+  flex-direction: column;
 }
 
 .model {
@@ -102,13 +120,15 @@ body:not([data-view="paint"]) #grid {
   text-overflow: ellipsis;
 }
 
-/* 下の余白をキャプションの高さにして、お手本と真ん中でそろえたときに上端がそろうようにする */
+/* マス目の上ではスクロール・拡大をせず、ドラッグで塗る */
 #grid {
   flex: none;
-  margin-bottom: var(--caption-height);
   touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
+}
+
+/* 左右のときは、下の余白をキャプションの高さにして、お手本と真ん中でそろえたときに上端がそろうようにする */
+main:not([data-direction="column"]) #grid {
+  margin-bottom: var(--caption-height);
 }
 
 /* 答え合わせ。2×2の4つとも --result-cell × --cols、--result-cell × --rows の大きさにする */
@@ -156,7 +176,7 @@ body:not([data-view="paint"]) #grid {
   text-align: center;
 }
 
-/* 狭い画面での2段の並びは TODO 5 で決める。それまでは収まらない分を折り返す */
+/* 塗る道具の段と、経過時間・別の絵・答え合わせの段を、幅が足りれば1段に、足りなければ2段に並べる */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -166,20 +186,72 @@ body:not([data-view="paint"]) #grid {
     max(16px, env(safe-area-inset-left));
 }
 
+.toolbar-paint,
+.toolbar-session,
 .toolbar .group {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.timer {
+.toolbar-session {
   margin-left: auto;
+}
+
+.timer {
   padding: 0 8px;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
 }
 
+/* 画面の幅が600pxより狭いときは必ず2段にし、各段を横幅いっぱいに広げる。
+   上の段の7つのボタンが360pxの画面にも収まるように、ボタンの横の余白を詰める */
+@media (max-width: 599.98px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-paint,
+  .toolbar-session,
+  .toolbar .group {
+    gap: 4px;
+  }
+
+  .toolbar-session {
+    margin-left: 0;
+  }
+
+  .toolbar .group,
+  .toolbar button {
+    flex: 1 1 auto;
+  }
+
+  .toolbar button {
+    padding: 0 4px;
+    font-size: 14px;
+  }
+
+  /* 選んでいる印の枠が、4pxの間を越えて隣のボタンにかからないようにする */
+  .toolbar button[aria-pressed="true"] {
+    outline-offset: 0;
+  }
+
+  .timer {
+    margin-right: auto;
+  }
+
+  /* 見本の四角は文字がないので、余った幅を3つで分ける */
+  .toolbar .swatch {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 36px;
+  }
+}
+
 button {
   min-height: 44px;
+  touch-action: manipulation;
   padding: 0 16px;
   border: 0;
   border-radius: 8px;
@@ -187,6 +259,7 @@ button {
   color: var(--text);
   font: inherit;
   font-size: 15px;
+  white-space: nowrap;
 }
 
 button:disabled {
@@ -221,11 +294,8 @@ button[aria-pressed="true"] {
 }
 
 /* 答え合わせの間は、下の並びを「塗りにもどる」だけにする */
-#back {
-  margin-left: auto;
-}
-
-body[data-view="result"] .toolbar > :not(#back),
+body[data-view="result"] .toolbar-paint,
+body[data-view="result"] .toolbar-session > :not(#back),
 body:not([data-view="result"]) #back {
   display: none;
 }
