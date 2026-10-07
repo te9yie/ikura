@@ -433,15 +433,44 @@ document.addEventListener("contextmenu", (event) => event.preventDefault());
 
 setInterval(updateTimerText, 250);
 
+// 待っている新しい版があれば替えてから開き直す。日付が変われば塗りは捨てるので、ここで替えても失うものはない
+async function reloadForNewDay() {
+  const waiting = swRegistration?.waiting;
+  if (waiting) {
+    const changed = new Promise((resolve) =>
+      navigator.serviceWorker.addEventListener("controllerchange", resolve, { once: true }),
+    );
+    waiting.postMessage("skipWaiting");
+    await Promise.race([changed, new Promise((resolve) => setTimeout(resolve, 3000))]);
+  }
+  location.reload();
+}
+
 document.addEventListener("visibilitychange", () => {
-  // 開いたまま朝を迎えたとき、見えたところで今日の絵に替える
-  if (document.visibilityState === "visible" && state.artwork !== null && localDateKey(new Date()) !== state.today) {
-    showToday();
-    return;
+  if (document.visibilityState === "visible") {
+    // 見えるたびに新しい版を探しておき、次に日付が変わったときに替える
+    swRegistration?.update().catch(() => {});
+    // 開いたまま朝を迎えたとき、開き直して今日の絵を出す。作品の一覧も読み直す
+    if (state.artwork !== null && localDateKey(new Date()) !== state.today) {
+      reloadForNewDay();
+      return;
+    }
   }
   syncTimer();
   updateTimerText();
 });
+
+// service worker。相対パスで登録するので、scope は sw.js のあるディレクトリ（GitHub Pages では /ikura/）になる。
+// 安全な文脈（HTTPSか localhost）でないと navigator.serviceWorker がなく、登録しないまま動く
+let swRegistration = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker
+    .register("sw.js")
+    .then((registration) => {
+      swRegistration = registration;
+    })
+    .catch((error) => console.error("service worker を登録できなかった", error));
+}
 
 try {
   state.artworks = await loadArtworks();

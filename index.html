@@ -4,6 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>ikura</title>
+  <meta name="theme-color" content="#333333">
+  <!-- apple-mobile-web-app-capable は manifest の display を読まない古いiOSのため。Chromeが非推奨と警告するので mobile-web-app-capable も並べる -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>

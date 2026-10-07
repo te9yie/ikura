@@ -99,6 +99,16 @@ GitHub Pagesで配信する。iPadではSafariで開いてホーム画面に追�
 
 指で塗る間に、ページがスクロールしたり拡大したりしないようにする。ピンチ・ダブルタップでの拡大、iOSのバウンス、Androidの引っぱって更新、長押しでの文字選択や画像の保存メニューを止める。ノッチやホームバーのある端末では、画面の端の安全な範囲の内側に並べる。
 
+### オフラインでは一度開いた絵だけが出る
+
+ホーム画面に追加して、アプリとして全画面で開く。アイコンは暗い灰色の地にいくら色の粒を1つ置いた絵で、地をアプリの背景と同じ色にして、開いたときに色が切り替わらないようにしてある。
+
+アプリのファイルと作品の一覧は先にキャッシュし、作品の画像は開いたものだけを残す。オフラインでは一度開いた絵だけが出る。初めて開いた日の今日の絵は、もう一度開いたときにキャッシュに入る。開いたことのない絵が今日の絵になったときは、お手本の場所に「画像を読めませんでした」が出る。
+
+作品の一覧は起動のたびに取りに行く。3秒で返らなければ前に取った一覧を使う。古い一覧のままだと、作品を足した日にiPadとAndroidで別の絵が出るためである。
+
+新しい版は、全部閉じて開いたときか、開いたまま日付が変わったときに替わる。塗っている途中や読み込みの途中で、古いファイルと新しいファイルが混ざらないようにするためである。日付が変わって画面が見えたときは、開き直して作品の一覧も読み直す。
+
 ### やらないこと
 
 - 連続日数や過去の結果の記録
@@ -118,6 +128,9 @@ python3 -m http.server 8000
 uv run scripts/fetch_artworks.py
 uv run scripts/fetch_artworks.py --count 300
 
+# アイコンを描き直す（icons/ に書き出す）
+uv run scripts/make_icons.py
+
 # スクリプトのテスト
 uv run --with pillow python -m unittest discover -s scripts
 
@@ -126,6 +139,12 @@ node --test "tests/*.test.js"
 ```
 
 アプリのうち、日付から作品を選ぶような、画面に触らない計算は `lib/` に分け、`tests/` のテストをnodeの標準のテストランナーで動かす。npmもpackage.jsonも要らない。`node --test tests/` とディレクトリを渡すと失敗するので、上のようにファイルの形で渡す。
+
+アプリのファイルを変えたら `node --test` が sw.js の VERSION に入れる値を出すので、それを入れる。VERSION はキャッシュするファイルの中身のハッシュで、入れ忘れると版が上がらず、古いファイルが出続ける。新しいファイルを足したら sw.js の PRECACHE に足す。index.html と style.css が読むファイルと、app.js・`lib/` の .js が相対で import するファイルは、足し忘れるとテストが落ちる。service worker は安全な文脈（HTTPSか localhost）でしか動かないので、LANのIPアドレスでhttpで開くと登録されない。
+
+手元の localhost でも service worker が登録されるので、一度開いたあとは、app.js や style.css を直して再読み込みしてもキャッシュの古いファイルが出る。VERSION を入れ直しても、新しい版はタブを全部閉じるまで替わらない。直しながら見るときは、Chrome の開発者ツールの Application → Service workers で「Update on reload」か「Bypass for network」に印を付ける。scope は `http://localhost:8000/` になるので、あとで同じポートでほかのプロジェクトを配ると、ikura の index.html や app.js が返る。ikura の作業を終えたら同じ画面の「Unregister」で外すか、`python3 -m http.server 8001` のようにプロジェクトごとにポートを分ける。
+
+アイコンのPNGは `scripts/make_icons.py` で描いて、書き出したものをコミットする。色は style.css の `:root` から読む。
 
 作品のスクリプトはPythonで書き、依存はPillowだけにしてある。`uv run` で動かすと、スクリプトの先頭の宣言に従って、Pillowを入れた環境で動く。Pillowを入れたPythonがあれば `python3 scripts/fetch_artworks.py` でも動く。uvはこのスクリプトを動かすためだけに使い、ブラウザで動くコードには使わない。
 
