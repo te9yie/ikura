@@ -6,12 +6,12 @@
 
 最初に、絵が1枚でも出る状態を作るための土台。ここで作る `artworks/index.json` の形に、アプリ側が合わせる。
 
-- [ ] Art Institute of ChicagoのIIIFから画像を落とせるか確かめる。クラウドの環境からは、CloudflareにHTTP 403で弾かれた。手元の端末からも弾かれるなら、Metropolitan Museumだけにする
-- [ ] `scripts/fetch_artworks.py` を作る。2館のAPIから、パブリックドメインの絵画の候補を集める（Art Institute of Chicagoは `is_public_domain`、Metropolitan Museumは `isPublicDomain` と部門・分類で絞る）
-- [ ] 縦横比で外し、4:3か3:4に中央で切り抜き、長辺800pxのJPEGにして `artworks/` に保存する
-- [ ] マスごとの平均の明るさから3値の正解を作る。境目はマスの明るさの分布を三等分して決める
+- [x] Art Institute of ChicagoのIIIFから画像を落とせるか確かめる。クラウドの環境からは、CloudflareにHTTP 403で弾かれた。手元の端末からも弾かれるなら、Metropolitan Museumだけにする
+- [x] `scripts/fetch_artworks.py` を作る。2館のAPIから、パブリックドメインの絵画の候補を集める（Art Institute of Chicagoは `is_public_domain`、Metropolitan Museumは `isPublicDomain` と部門・分類で絞る）
+- [x] 縦横比で外し、4:3か3:4に中央で切り抜き、長辺800pxのJPEGにして `artworks/` に保存する
+- [x] マスごとの平均の明るさから3値の正解を作る。境目はマスの明るさの分布を三等分して決める
 - [ ] 明暗の幅が狭い絵を外す。外す基準の値は、実際に何枚か見て決める
-- [ ] 並び順をシャッフルして `artworks/index.json` に書く。再実行で増やしたとき、既にある作品の順番を変えない
+- [x] 並び順をシャッフルして `artworks/index.json` に書く。再実行で増やしたとき、既にある作品の順番を変えない
 - [ ] まず30枚ほどで回してみて、変な絵が混ざらないかを見てから数百枚に増やす
 
 ## 2. 今日の絵を出す

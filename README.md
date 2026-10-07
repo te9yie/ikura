@@ -18,11 +18,45 @@ GitHub Pagesで配信する。iPadではSafariで開いてホーム画面に追�
 
 - 絵画でないもの（版画・写真・工芸など）と、縦横比が4:3から離れすぎたものを外す。
 - 4:3（横長）か3:4（縦長）に中央で切り抜き、長辺800pxのJPEGに縮める。
-- 3値の正解を作る。マスごとの平均の明るさを出し、マス全体の明るさの分布を三等分して境目にする。明るさの固定値で切ると、暗い絵が全部黒になるためである。
-- 3値に分けても明暗の幅が狭いもの（ほぼ真っ黒な絵など）を外す。
-- 並び順を一度シャッフルして、`artworks/index.json` に書く。
+- 3値の正解を作る。マスごとの平均の明るさ（CIE L\*）を出し、マス全体の明るさの分布を三等分して境目にする。明るさの固定値で切ると、暗い絵が全部黒になるためである。
+- 3値に分けても明暗の幅が狭いもの（ほぼ真っ黒な絵など）を外す。明暗の幅は、明のマスの平均L\*から暗のマスの平均L\*を引いた値で、15より小さいものを外す。15は仮の値で、`.cache/review.html` で絵を見比べて決め直す。
+- 候補をIDのハッシュの順に見て、採った順に `artworks/index.json` に書く。シャッフルしたのと同じく館や画家が混ざって並び、再実行で作品を足しても、既にある作品の順番は変わらない。
 
 `artworks/index.json` には、作品ごとに画像のファイル名、タイトル、作者、所蔵館、元のページのURL、向き、3値の正解を持つ。正解はスクリプトで作っておくので、アプリでは画像のピクセルを読まない。
+
+```json
+{
+  "version": 1,
+  "artworks": [
+    {
+      "id": "met-436535",
+      "image": "met-436535.jpg",
+      "title": "Wheat Field with Cypresses",
+      "artist": "Vincent van Gogh",
+      "museum": "The Metropolitan Museum of Art",
+      "url": "https://www.metmuseum.org/art/collection/search/436535",
+      "orientation": "landscape",
+      "cols": 16,
+      "rows": 12,
+      "answer": "222211110000…（192文字）"
+    }
+  ]
+}
+```
+
+| フィールド | 中身 |
+|---|---|
+| `id` | `met-{objectID}` か `aic-{id}` |
+| `image` | `artworks/` からの相対パス。アプリでは `artworks/` + `image` のパスで読む。画像は横長なら800×600、縦長なら600×800 |
+| `title` | 作品名 |
+| `artist` | 作者。分からなければ空文字で、空ならアプリでは出さない |
+| `museum` | `"The Metropolitan Museum of Art"` か `"Art Institute of Chicago"` |
+| `url` | 所蔵館の作品のページ |
+| `orientation` | `"landscape"` か `"portrait"` |
+| `cols`、`rows` | 横長は16と12、縦長は12と16 |
+| `answer` | マスの3値を行優先（左上から右へ、次の行へ）に並べた `cols × rows` 文字。`"0"`＝暗、`"1"`＝中、`"2"`＝明 |
+
+並びは `artworks` の配列の順で、アプリではこの順で「今日の絵」と「別の絵」を選ぶ。
 
 ### 1日1枚、日付で進める
 
@@ -69,8 +103,16 @@ GitHub Pagesで配信する。iPadではSafariで開いてホーム画面に追�
 # 手元で動かす
 python3 -m http.server 8000
 
-# 作品を取ってくる（Pillowが要る）
-python3 scripts/fetch_artworks.py
+# 作品を取ってくる（index.json が30枚になるまで足す）
+uv run scripts/fetch_artworks.py
+uv run scripts/fetch_artworks.py --count 300
+
+# スクリプトのテスト
+uv run --with pillow python -m unittest discover -s scripts
 ```
+
+作品のスクリプトはPythonで書き、依存はPillowだけにしてある。`uv run` で動かすと、スクリプトの先頭の宣言に従って、Pillowを入れた環境で動く。Pillowを入れたPythonがあれば `python3 scripts/fetch_artworks.py` でも動く。uvはこのスクリプトを動かすためだけに使い、ブラウザで動くコードには使わない。
+
+キャッシュは `.cache/` に置く（コミットしない）。再実行では、キャッシュにある候補は落とし直さない。確認用のHTMLに載せる絵の3値化の結果も `.cache/analysis.json` に残し、画像が変わっていなければ計算し直さない。`.cache/review.html` をブラウザで開くと、3値まで計算した絵を明暗の幅の小さい順に、3値の正解と並べて見られる。変な絵があったら `scripts/excluded.txt` にIDを書いて再実行すると、`index.json` から外れて次の候補で埋まる。明暗の幅の基準を変えて最初から作り直すときは、`artworks/` を消して `--min-spread` を付けて再実行する。
 
 やることは `TODO.md` にある。
