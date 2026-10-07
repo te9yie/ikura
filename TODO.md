@@ -45,6 +45,6 @@
 
 - [x] `manifest.webmanifest` とアイコン（いくら色）を作る。パスは相対パスにする
 - [x] service workerでアプリのファイルをキャッシュする。作品の画像は開いたものだけをキャッシュする
-- [ ] GitHub Pagesをmainブランチのルートから配信する設定にする
+- [x] GitHub Pagesをmainブランチのルートから配信する設定にする
 - [ ] iPadのSafariでホーム画面に追加して、全画面で開けるかを確かめる
 - [ ] AndroidのChromeで開けるかを確かめる
