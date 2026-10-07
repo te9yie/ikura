@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ikura</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body data-view="loading">
+  <main>
+    <figure class="model">
+      <img alt="">
+      <p class="model-message" hidden>画像を読めませんでした</p>
+      <figcaption>
+        <span class="title"></span>
+        <span class="meta"></span>
+      </figcaption>
+    </figure>
+    <div class="load-error" hidden>
+      <p>作品の一覧を読めませんでした</p>
+      <button type="button" id="retry">もう一度</button>
+    </div>
+  </main>
+  <footer class="toolbar">
+    <button type="button" id="swap">別の絵</button>
+  </footer>
+</body>
+</html>

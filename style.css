@@ -1,0 +1,114 @@
+:root {
+  --bg: #333333;
+  --text: #c8c8c8;
+  --text-sub: #999999;
+  --button: #444444;
+  --gap: 12px;
+  --caption-height: 56px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* この大きさに絵を収める。TODO 3 で、ここを測ってマスの大きさを決める */
+main {
+  flex: 1;
+  min-height: 0;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 0
+    max(16px, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+}
+
+.model {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.model img {
+  display: block;
+  max-width: 100cqw;
+  max-height: calc(100cqh - var(--caption-height));
+}
+
+/* 読み込みの途中と、読めなかったときは、壊れた画像の印と alt の文字を出さない */
+body:not([data-view="paint"]) .model img {
+  display: none;
+}
+
+.model-message {
+  margin: 0;
+  padding: 48px 24px;
+}
+
+/* 幅を絵に合わせ、長いタイトルで figure を広げない */
+.model figcaption {
+  contain: inline-size;
+  align-self: stretch;
+  height: var(--caption-height);
+  box-sizing: border-box;
+  padding-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.model .title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.model .meta {
+  display: block;
+  font-size: 12px;
+  color: var(--text-sub);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.load-error {
+  text-align: center;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: var(--gap) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
+
+button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--button);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
