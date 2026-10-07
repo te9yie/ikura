@@ -15,6 +15,7 @@ from fetch_artworks import (
     cached_analyze,
     cell_means,
     classify,
+    clean_artist,
     crop_box,
     merge_index,
     order_key,
@@ -89,6 +90,16 @@ class ClassifyTest(unittest.TestCase):
         answer, spread = classify([50.0] * 192)
         self.assertEqual(answer, "0" * 192)
         self.assertEqual(spread, 0)
+
+
+class CleanArtistTest(unittest.TestCase):
+    def test_unknown_becomes_empty(self):
+        self.assertEqual(clean_artist("Artist unknown"), "")
+        self.assertEqual(clean_artist(" Unknown "), "")
+
+    def test_name_and_region_are_kept(self):
+        self.assertEqual(clean_artist(" Claude Monet "), "Claude Monet")
+        self.assertEqual(clean_artist("India"), "India")
 
 
 class OrderKeyTest(unittest.TestCase):

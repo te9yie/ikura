@@ -203,6 +203,15 @@ def aic_image_width(record):
     return 843
 
 
+# AICは作者が分からない絵の artist_display に、空ではなくこの文字を入れてくる
+UNKNOWN_ARTISTS = {"artist unknown", "unknown", "unknown artist"}
+
+
+def clean_artist(artist):
+    artist = artist.strip()
+    return "" if artist.lower() in UNKNOWN_ARTISTS else artist
+
+
 def make_entry(artwork_id, record, orientation, answer):
     museum, number = artwork_id.split("-", 1)
     if museum == "met":
@@ -218,7 +227,7 @@ def make_entry(artwork_id, record, orientation, answer):
         "id": artwork_id,
         "image": f"{artwork_id}.jpg",
         "title": title.strip(),
-        "artist": artist.strip(),
+        "artist": clean_artist(artist),
         "museum": MUSEUM_NAMES[museum],
         "url": url,
         "orientation": orientation,
