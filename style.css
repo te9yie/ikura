@@ -111,6 +111,47 @@ body:not([data-view="paint"]) #grid {
   -webkit-user-select: none;
 }
 
+/* 答え合わせ。2×2の4つとも --result-cell × --cols、--result-cell × --rows の大きさにする */
+.result {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, calc(var(--result-cell) * var(--cols)));
+  grid-template-rows: repeat(2, calc(var(--result-cell) * var(--rows)));
+  gap: var(--gap);
+}
+
+.result > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+/* 文字の大きさはマスに合わせ、スマホの 160×120 にも収まるようにする */
+.result-numbers {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  font-size: clamp(12px, calc(var(--result-cell) * 0.6), 20px);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-numbers p {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.result-total {
+  line-height: 1.1;
+}
+
+.result-total strong {
+  font-size: clamp(28px, calc(var(--result-cell) * 1.6), 64px);
+  font-weight: 600;
+}
+
 .load-error {
   text-align: center;
 }
@@ -177,4 +218,14 @@ button[aria-pressed="true"] {
 #check {
   background: var(--ikura);
   color: var(--on-ikura);
+}
+
+/* 答え合わせの間は、下の並びを「塗りにもどる」だけにする */
+#back {
+  margin-left: auto;
+}
+
+body[data-view="result"] .toolbar > :not(#back),
+body:not([data-view="result"]) #back {
+  display: none;
 }

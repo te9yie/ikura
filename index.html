@@ -18,6 +18,19 @@
       </figcaption>
     </figure>
     <canvas id="grid"></canvas>
+    <!-- 上の段にお手本と自分の塗り、下の段に数字と3値の正解。自分の塗りの真下に正解が来る -->
+    <section class="result" aria-label="答え合わせ" hidden>
+      <img class="result-model" alt="">
+      <canvas class="result-mine" aria-label="自分の塗り"></canvas>
+      <div class="result-numbers">
+        <p class="result-total">一致 <strong></strong></p>
+        <p class="result-value" data-value="2">明 <span></span></p>
+        <p class="result-value" data-value="1">中 <span></span></p>
+        <p class="result-value" data-value="0">暗 <span></span></p>
+        <p class="result-time">時間 <span></span></p>
+      </div>
+      <canvas class="result-answer" aria-label="3値の正解"></canvas>
+    </section>
     <div class="load-error" hidden>
       <p>作品の一覧を読めませんでした</p>
       <button type="button" id="retry">もう一度</button>
@@ -38,6 +51,7 @@
     <span class="timer" role="timer">0:00</span>
     <button type="button" id="swap">別の絵</button>
     <button type="button" id="check" disabled>答え合わせ</button>
+    <button type="button" id="back">塗りにもどる</button>
   </footer>
 </body>
 </html>

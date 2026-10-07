@@ -1,14 +1,15 @@
 // 入口。状態を持ち、DOMとイベントをつなぐ。ブラウザに触るのはこのファイルだけにする
 import { localDateKey, readSwap, writeSwap, clearSwap, pickArtwork } from "./lib/day.js";
 import { parseAnswer, lineCells, paintBrush, floodFill, cellAt } from "./lib/grid.js";
-import { fitLayout } from "./lib/layout.js";
+import { fitLayout, fitResultLayout, markSize } from "./lib/layout.js";
+import { score, percent } from "./lib/score.js";
 
 // 戻せる回数。写しは1回 cols × rows バイトなので、100回でも20KBに届かない
 const HISTORY_LIMIT = 100;
 const BRUSH_SIZE = { brush1: 1, brush3: 3 };
 
 const state = {
-  view: "loading", // "loading" | "paint" | "error"
+  view: "loading", // "loading" | "paint" | "result" | "error"
   artworks: [], // index.json の artworks のうち、形の正しいもの
   today: null, // 絵を選んだときのローカル日付
   artwork: null, // 今出している作品（index.json の1件）
@@ -20,7 +21,9 @@ const state = {
   history: [], // 塗る操作の前の cells の写し。最大 HISTORY_LIMIT
   stroke: null, // 指を置いている間だけ { pointerId, last: {col,row}|null, before, changed, rect }
   timer: { elapsed: 0, since: null }, // since は performance.now() の値。止まっているときは null
+  result: null, // 答え合わせの間だけ score() の戻り値
   cell: 0, // マスの一辺（CSSのpx）。main の大きさを測るまでは 0
+  resultCell: 0, // 答え合わせの画面のマスの一辺
   dpr: 1,
 };
 
@@ -40,6 +43,15 @@ const els = {
   undo: document.querySelector("#undo"),
   timer: document.querySelector(".timer"),
   swap: document.querySelector("#swap"),
+  check: document.querySelector("#check"),
+  back: document.querySelector("#back"),
+  result: document.querySelector(".result"),
+  resultImage: document.querySelector(".result-model"),
+  resultMine: document.querySelector(".result-mine"),
+  resultAnswer: document.querySelector(".result-answer"),
+  resultTotal: document.querySelector(".result-total strong"),
+  resultValues: document.querySelectorAll(".result-value"),
+  resultTime: document.querySelector(".result-time span"),
 };
 
 // 色と寸法は style.css の :root にだけ書き、ここでは読むだけにする
@@ -97,9 +109,12 @@ function showArtwork(artwork) {
   state.cells = new Uint8Array(artwork.cols * artwork.rows).fill(1);
   state.history = [];
   state.stroke = null;
+  state.result = null;
   state.timer = { elapsed: 0, since: null };
   const src = imagePath(artwork);
   els.image.alt = artwork.title;
+  els.resultImage.alt = artwork.title;
+  els.resultImage.src = src;
   els.title.textContent = artwork.title;
   els.meta.textContent = artwork.artist ? `${artwork.artist} · ${artwork.museum}` : artwork.museum;
   if (els.image.getAttribute("src") === src && els.image.complete && els.image.naturalWidth > 0) {
@@ -123,8 +138,8 @@ function showToday() {
 }
 
 function swapArtwork() {
-  // index.json を読み終える前と、読めなかったときは何もしない
-  if (state.artwork === null) return;
+  // index.json を読み終える前と、読めなかったとき、塗っている途中は何もしない
+  if (state.artwork === null || state.stroke !== null) return;
   if (state.history.length > 0 && !confirm("塗ったマスが消えます。別の絵にしますか")) return;
   const index = state.artworks.indexOf(state.artwork);
   const next = state.artworks[(index + 1) % state.artworks.length];
@@ -132,36 +147,40 @@ function swapArtwork() {
   showArtwork(next);
 }
 
-// main の大きさと作品の向きから、お手本とマス目の大きさを決める
+// main の大きさと作品の向きから、お手本とマス目の大きさと、答え合わせの画面の大きさを決める
 function updateLayout() {
   if (state.artwork === null || mainSize === null) return;
   const { cols, rows } = state.artwork;
-  const { direction, cell } = fitLayout({
-    width: mainSize.width,
-    height: mainSize.height,
-    cols,
-    rows,
-    gap: GAP,
-    captionHeight: CAPTION_HEIGHT,
-  });
+  const { width, height } = mainSize;
+  const { direction, cell } = fitLayout({ width, height, cols, rows, gap: GAP, captionHeight: CAPTION_HEIGHT });
   state.cell = cell;
+  state.resultCell = fitResultLayout({ width, height, cols, rows, gap: GAP }).cell;
   state.dpr = window.devicePixelRatio || 1;
   els.main.style.setProperty("--cell", `${cell}px`);
+  els.main.style.setProperty("--result-cell", `${state.resultCell}px`);
   els.main.style.setProperty("--cols", cols);
   els.main.style.setProperty("--rows", rows);
   els.main.dataset.direction = direction;
-  // 中身の画素は devicePixelRatio 倍にして、高精細の画面でぼやけないようにする
-  els.grid.width = Math.round(cell * cols * state.dpr);
-  els.grid.height = Math.round(cell * rows * state.dpr);
+  sizeCanvas(els.grid, cell);
+  sizeCanvas(els.resultMine, state.resultCell);
+  sizeCanvas(els.resultAnswer, state.resultCell);
   drawGrid();
+  drawResult();
 }
 
-// 192マスを全部描き直す。境目の線は内側にだけ、幅1px（CSSのpx）で引く
-function drawGrid() {
-  if (state.view !== "paint" || state.cell === 0) return;
+// 中身の画素は devicePixelRatio 倍にして、高精細の画面でぼやけないようにする
+function sizeCanvas(canvas, cell) {
   const { cols, rows } = state.artwork;
-  const { cell, cells } = state;
-  const ctx = els.grid.getContext("2d");
+  canvas.width = Math.round(cell * cols * state.dpr);
+  canvas.height = Math.round(cell * rows * state.dpr);
+}
+
+// マスを全部描き直す。境目の線は内側にだけ、幅1px（CSSのpx）で引く。
+// mismatch を渡すと、ずれたマスの真ん中に正解の色の四角を描く。自分の色と正解の色は必ず違うので、
+// 白・灰・黒のどの組み合わせでも見え、どちらへずれたかが印だけで分かる
+function drawCells(canvas, cells, cell, mismatch = null) {
+  const { cols, rows } = state.artwork;
+  const ctx = canvas.getContext("2d");
   ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
@@ -172,6 +191,25 @@ function drawGrid() {
   ctx.fillStyle = colors.line;
   for (let col = 1; col < cols; col++) ctx.fillRect(col * cell, 0, 1, rows * cell);
   for (let row = 1; row < rows; row++) ctx.fillRect(0, row * cell, cols * cell, 1);
+  if (mismatch === null) return;
+  const size = markSize(cell);
+  const offset = Math.round((cell - size) / 2);
+  for (let i = 0; i < mismatch.length; i++) {
+    if (mismatch[i] === 0) continue;
+    ctx.fillStyle = colors.values[state.answer[i]];
+    ctx.fillRect((i % cols) * cell + offset, Math.floor(i / cols) * cell + offset, size, size);
+  }
+}
+
+function drawGrid() {
+  if (state.view !== "paint" || state.cell === 0) return;
+  drawCells(els.grid, state.cells, state.cell);
+}
+
+function drawResult() {
+  if (state.view !== "result" || state.resultCell === 0) return;
+  drawCells(els.resultMine, state.cells, state.resultCell, state.result.mismatch);
+  drawCells(els.resultAnswer, state.answer, state.resultCell);
 }
 
 function elapsedMs() {
@@ -203,11 +241,28 @@ function updateTimerText() {
   if (els.timer.textContent !== text) els.timer.textContent = text;
 }
 
+function formatPercent(value) {
+  return value === null ? "—" : `${value}%`;
+}
+
+// 答え合わせの数字を書く。時間は止めたあとの値を出す
+function writeResult() {
+  const { total, matched, byValue } = state.result;
+  els.resultTotal.textContent = formatPercent(percent(matched, total));
+  for (const line of els.resultValues) {
+    const { count, matched } = byValue[Number(line.dataset.value)];
+    line.querySelector("span").textContent = formatPercent(percent(matched, count));
+  }
+  els.resultTime.textContent = formatElapsed(state.timer.elapsed);
+}
+
 function render() {
   const error = state.view === "error";
   const painting = state.view === "paint";
+  const checking = state.view === "result";
   document.body.dataset.view = state.view;
-  els.model.hidden = error;
+  els.model.hidden = error || checking;
+  els.result.hidden = !checking;
   els.loadError.hidden = !error;
   els.toolbar.hidden = error;
   els.imageMessage.hidden = !state.imageFailed;
@@ -220,9 +275,12 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.tool === state.tool));
   }
   els.undo.disabled = !painting || state.history.length === 0;
+  els.check.disabled = !painting;
   syncTimer();
   updateTimerText();
+  if (checking) writeResult();
   drawGrid();
+  drawResult();
 }
 
 // 前の絵の読み込みが遅れて届いたときは無視する
@@ -342,6 +400,22 @@ els.undo.addEventListener("click", () => {
 });
 
 els.swap.addEventListener("click", swapArtwork);
+
+// 答え合わせで経過時間が止まり、「塗りにもどる」で塗りを残したまま続きから数える
+els.check.addEventListener("click", () => {
+  // 別の指で塗っている途中は答え合わせしない
+  if (state.view !== "paint" || state.stroke !== null) return;
+  state.view = "result";
+  state.result = score(state.cells, state.answer);
+  render();
+});
+
+els.back.addEventListener("click", () => {
+  if (state.view !== "result") return;
+  state.view = "paint";
+  state.result = null;
+  render();
+});
 els.retry.addEventListener("click", () => location.reload());
 
 new ResizeObserver(([entry]) => {
