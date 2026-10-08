@@ -8,6 +8,7 @@ import {
   floodFill,
   cellAt,
   isValidGrid,
+  isValidPalette,
   pickGrid,
 } from "../lib/grid.js";
 
@@ -132,8 +133,25 @@ test("isValidGrid は answer の長さと文字を確かめる", () => {
 test("pickGrid は fine なら細かいほうを、なければ粗いほうを返す", () => {
   const coarse = { cols: 2, rows: 1, answer: "02" };
   const artwork = { id: "a", ...coarse, fine: { cols: 3, rows: 1, answer: "012" } };
-  assert.deepEqual(pickGrid(artwork, false), coarse);
-  assert.deepEqual(pickGrid(artwork, true), { cols: 3, rows: 1, answer: "012" });
-  assert.deepEqual(pickGrid({ id: "a", ...coarse }, true), coarse);
-  assert.deepEqual(pickGrid({ ...artwork, fine: { cols: 3, rows: 1, answer: "01" } }, true), coarse);
+  assert.deepEqual(pickGrid(artwork, false), { ...coarse, palette: null });
+  assert.deepEqual(pickGrid(artwork, true), { cols: 3, rows: 1, answer: "012", palette: null });
+  assert.deepEqual(pickGrid({ id: "a", ...coarse }, true), { ...coarse, palette: null });
+  assert.deepEqual(pickGrid({ ...artwork, fine: { cols: 3, rows: 1, answer: "01" } }, true), { ...coarse, palette: null });
+});
+
+test("pickGrid はマス目ごとのパレットを返し、形が合わなければ null にする", () => {
+  const palette = ["#101010", "#555555", "#aaaaaa"];
+  const finePalette = ["#0f0f0f", "#565656", "#acacac"];
+  const artwork = { id: "a", cols: 2, rows: 1, answer: "02", palette, fine: { cols: 3, rows: 1, answer: "012", palette: finePalette } };
+  assert.deepEqual(pickGrid(artwork, false).palette, palette);
+  assert.deepEqual(pickGrid(artwork, true).palette, finePalette);
+  assert.equal(pickGrid({ ...artwork, palette: ["#101010", "#555555"] }, false).palette, null);
+  assert.equal(pickGrid({ ...artwork, palette: ["#101010", "#555555", "white"] }, false).palette, null);
+});
+
+test("isValidPalette は #rrggbb が3つ並んでいるかを確かめる", () => {
+  assert.equal(isValidPalette(["#000000", "#808080", "#eeeeee"]), true);
+  assert.equal(isValidPalette(["#000", "#808080", "#eeeeee"]), false);
+  assert.equal(isValidPalette("#000000"), false);
+  assert.equal(isValidPalette(undefined), false);
 });

@@ -18,6 +18,7 @@ from fetch_artworks import (
     classify,
     clean_artist,
     crop_box,
+    lightness_to_gray,
     merge_index,
     order_key,
     parse_excluded,
@@ -66,32 +67,32 @@ class CellMeansTest(unittest.TestCase):
 
 
 class ClassifyTest(unittest.TestCase):
-    def test_distinct_values_split_evenly(self):
-        means = [float(v) for v in range(192)]
-        random.Random(0).shuffle(means)
-        answer, spread = classify(means)
-        self.assertEqual(Counter(answer), {"0": 64, "1": 64, "2": 64})
-        for v, a in zip(means, answer):
-            self.assertEqual(a, "0" if v < 64 else "2" if v >= 128 else "1")
-        self.assertAlmostEqual(spread, 128)
+    def test_palette_is_darkest_middle_and_lightest_cell(self):
+        means = [50.0, 100.0, 24.0, 0.0, 76.0, 26.0, 74.0]
+        answer, palette, spread = classify(means)
+        # L* 0・50・100 の灰色
+        self.assertEqual(palette, ["#000000", "#777777", "#ffffff"])
+        self.assertEqual(answer, "1200211")
+        self.assertAlmostEqual(spread, (100 + 76) / 2 - (24 + 0) / 2)
 
-    def test_ties_at_boundaries_get_same_symbol(self):
-        means = [0.0] * 60 + [1.0] * 10 + [float(v) for v in range(10, 62)] + [99.0] * 70
-        random.Random(1).shuffle(means)
-        answer, _ = classify(means)
-        for v, a in zip(means, answer):
-            if v <= 1.0:
-                self.assertEqual(a, "0")
-            elif v == 99.0:
-                self.assertEqual(a, "2")
-            else:
-                self.assertEqual(a, "1")
-        self.assertEqual(Counter(answer), {"0": 70, "1": 52, "2": 70})
+    def test_cells_go_to_nearest_palette_color_not_to_thirds(self):
+        # 暗いマスが多い絵でも三等分にはせず、一番明るいマスに近いものだけを明にする
+        means = [10.0] * 150 + [30.0] * 40 + [90.0] * 2
+        answer, palette, _ = classify(means)
+        self.assertEqual(Counter(answer), {"0": 150, "1": 40, "2": 2})
+        self.assertEqual(palette[0], "#" + "%02x" % lightness_to_gray(10) * 3)
 
     def test_uniform_image_is_all_dark(self):
-        answer, spread = classify([50.0] * 192)
+        answer, palette, spread = classify([50.0] * 192)
         self.assertEqual(answer, "0" * 192)
+        self.assertEqual(len(set(palette)), 1)
         self.assertEqual(spread, 0)
+
+
+class LightnessToGrayTest(unittest.TestCase):
+    def test_round_trips_through_lightness(self):
+        for g in (0, 1, 10, 64, 128, 200, 255):
+            self.assertEqual(lightness_to_gray(srgb_to_lightness(g, g, g)), g)
 
 
 class CleanArtistTest(unittest.TestCase):
@@ -163,8 +164,8 @@ class CachedAnalyzeTest(unittest.TestCase):
         cached_analyze(self.path, cache)
         mtime = self.path.stat().st_mtime_ns
         os.utime(self.path, ns=(mtime + 10**9, mtime + 10**9))
-        with mock.patch("fetch_artworks.analyze", return_value=("landscape", "x", 1.0)) as m:
-            self.assertEqual(cached_analyze(self.path, cache), ("landscape", "x", 1.0))
+        with mock.patch("fetch_artworks.analyze", return_value=("landscape", "x", ["#000000"] * 3, 1.0)) as m:
+            self.assertEqual(cached_analyze(self.path, cache), ("landscape", "x", ["#000000"] * 3, 1.0))
         m.assert_called_once()
         self.assertEqual(cache["met-1.jpg"]["mtime_ns"], mtime + 10**9)
 
@@ -184,8 +185,11 @@ class AnalyzeFineTest(unittest.TestCase):
         fine = analyze_fine(self.make_image((800, 600)))
         self.assertEqual((fine["cols"], fine["rows"]), (24, 18))
         self.assertEqual(len(fine["answer"]), 24 * 18)
-        # 左から右へ明るくなる画像なので、どの行も 0 が8つ、1 が8つ、2 が8つ並ぶ
-        self.assertEqual(fine["answer"][:24], "0" * 8 + "1" * 8 + "2" * 8)
+        # 左から右へ明るくなる画像なので、どの行も 0、1、2 の順に並ぶ
+        row = fine["answer"][:24]
+        self.assertEqual(row, "".join(sorted(row)))
+        self.assertEqual(set(row), {"0", "1", "2"})
+        self.assertEqual(len(fine["palette"]), 3)
 
     def test_portrait_is_18_by_24(self):
         fine = analyze_fine(self.make_image((600, 800)))
@@ -204,7 +208,8 @@ class ValidateTest(unittest.TestCase):
             "cols": 2,
             "rows": 1,
             "answer": "01",
-            "fine": {"cols": 3, "rows": 1, "answer": "012"},
+            "palette": ["#000000", "#808080", "#ffffff"],
+            "fine": {"cols": 3, "rows": 1, "answer": "012", "palette": ["#000000", "#808080", "#ffffff"]},
         }
 
     def test_valid_entry_has_no_errors(self):
@@ -212,9 +217,15 @@ class ValidateTest(unittest.TestCase):
 
     def test_missing_or_short_fine_is_an_error(self):
         without = {k: v for k, v in self.entry.items() if k != "fine"}
-        short = {**self.entry, "fine": {"cols": 3, "rows": 1, "answer": "01"}}
+        short = {**self.entry, "fine": {**self.entry["fine"], "answer": "01"}}
         self.assertEqual(len(validate([without], self.dir)), 1)
         self.assertEqual(len(validate([short], self.dir)), 1)
+
+    def test_missing_or_bad_palette_is_an_error(self):
+        without = {k: v for k, v in self.entry.items() if k != "palette"}
+        bad = {**self.entry, "fine": {**self.entry["fine"], "palette": ["#000", "#808080", "#ffffff"]}}
+        self.assertEqual(len(validate([without], self.dir)), 1)
+        self.assertEqual(len(validate([bad], self.dir)), 1)
 
 
 if __name__ == "__main__":

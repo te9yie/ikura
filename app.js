@@ -16,7 +16,7 @@ const state = {
   today: null, // 絵を選んだときのローカル日付
   artwork: null, // 今出している作品（index.json の1件）
   fine: false, // 細かいマス目を選んでいる
-  grid: null, // 今のマス目の { cols, rows, answer }。pickGrid(artwork, fine) の戻り値
+  grid: null, // 今のマス目の { cols, rows, answer, palette }。pickGrid(artwork, fine) の戻り値
   imageFailed: false, // お手本の画像を読めなかった
   answer: null, // Uint8Array(cols*rows)。answer の文字列を 0/1/2 にしたもの
   cells: null, // Uint8Array(cols*rows)。自分の塗り。最初は全部 1
@@ -59,10 +59,12 @@ const els = {
   resultTime: document.querySelector(".result-time span"),
 };
 
-// 色と寸法は style.css の :root にだけ書き、ここでは読むだけにする
+// 色と寸法は style.css の :root にだけ書き、ここでは読むだけにする。
+// 暗・中・明の3色は作品ごとのパレットで替え、パレットのない作品では :root の色を使う
 const rootStyle = getComputedStyle(document.documentElement);
 const cssValue = (name) => rootStyle.getPropertyValue(name).trim();
-const colors = { values: [cssValue("--v0"), cssValue("--v1"), cssValue("--v2")], line: cssValue("--line") };
+const defaultValues = [cssValue("--v0"), cssValue("--v1"), cssValue("--v2")];
+const colors = { values: defaultValues, line: cssValue("--line") };
 const GAP = parseFloat(cssValue("--gap"));
 const CAPTION_HEIGHT = parseFloat(cssValue("--caption-height"));
 
@@ -125,6 +127,7 @@ function showArtwork(artwork) {
   state.view = "loading";
   state.imageFailed = false;
   state.answer = parseAnswer(state.grid.answer);
+  setPalette(state.grid.palette ?? defaultValues);
   state.cells = new Uint8Array(state.grid.cols * state.grid.rows).fill(1);
   state.history = [];
   state.stroke = null;
@@ -144,6 +147,12 @@ function showArtwork(artwork) {
   }
   updateLayout();
   render();
+}
+
+// マス目と色のボタンを、作品のパレットの色にする
+function setPalette(values) {
+  colors.values = values;
+  values.forEach((value, i) => els.toolbar.style.setProperty(`--v${i}`, value));
 }
 
 function showToday() {
@@ -205,7 +214,7 @@ function sizeCanvas(canvas, cell) {
 
 // マスを全部描き直す。境目の線は内側にだけ、幅1px（CSSのpx）で引く。
 // mismatch を渡すと、ずれたマスの真ん中に正解の色の四角を描く。自分の色と正解の色は必ず違うので、
-// 白・灰・黒のどの組み合わせでも見え、どちらへずれたかが印だけで分かる
+// 暗・中・明のどの組み合わせでも見え、どちらへずれたかが印だけで分かる
 function drawCells(canvas, cells, cell, mismatch = null) {
   const { cols, rows } = state.grid;
   const ctx = canvas.getContext("2d");

@@ -19,6 +19,7 @@ import http.client
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -103,6 +104,14 @@ def srgb_to_lightness(r, g, b):
     return luminance_to_lightness(0.2126 * LINEAR[r] + 0.7152 * LINEAR[g] + 0.0722 * LINEAR[b])
 
 
+def lightness_to_gray(lightness):
+    """L* を、同じ明るさの灰色のsRGBの値（0〜255）にする。"""
+    f = (lightness + 16) / 116
+    y = f**3 if f**3 > _EPSILON else lightness / _KAPPA
+    c = y * 12.92 if y <= 0.0031308 else 1.055 * y ** (1 / 2.4) - 0.055
+    return min(255, max(0, round(c * 255)))
+
+
 def crop_box(w, h):
     """元の大きさから、向き、切り抜いたあとに残る面積の割合、中央の切り抜き枠を返す。"""
     if w >= h:
@@ -149,28 +158,33 @@ def cell_means(lightness, width, height, cols, rows):
 
 
 def classify(means):
-    """マスの平均を明るさの順に三等分し、(行優先の "0"/"1"/"2" の文字列, 明暗の幅) を返す。
+    """マスの平均から、絵のパレットと3値の正解を作り、(answer, palette, 明暗の幅) を返す。
 
-    境目に同じ値が並んだときは、同じ値を同じ記号にする。暗と明の境目が重なったら暗を優先する。
+    パレットは一番暗いマス、一番明るいマス、その2つのL*の真ん中の3色の灰色で、暗・中・明の順の
+    "#rrggbb" のリストにする。answer は、マスごとにL*が一番近いパレットの色を選んだ行優先の
+    "0"/"1"/"2" の文字列。ちょうど真ん中のマスは暗いほうにする。
     """
-    n = len(means)
-    k = n // 3
-    if k == 0:
-        raise ValueError("マスが3つより少ない")
-    s = sorted(means)
-    t_dark, t_light = s[k - 1], s[n - k]
+    if not means:
+        raise ValueError("マスがない")
+    lo, hi = min(means), max(means)
+    grays = [lightness_to_gray(lo), lightness_to_gray((lo + hi) / 2), lightness_to_gray(hi)]
+    palette = [f"#{g:02x}{g:02x}{g:02x}" for g in grays]
+    if grays[0] == grays[2]:
+        return "0" * len(means), palette, 0.0
+    l0, l1, l2 = (srgb_to_lightness(g, g, g) for g in grays)
+    t_dark, t_light = (l0 + l1) / 2, (l1 + l2) / 2
     answer, dark, light = [], [], []
     for v in means:
         if v <= t_dark:
             answer.append("0")
             dark.append(v)
-        elif v >= t_light:
+        elif v > t_light:
             answer.append("2")
             light.append(v)
         else:
             answer.append("1")
-    spread = sum(light) / len(light) - sum(dark) / len(dark) if light else 0.0
-    return "".join(answer), spread
+    spread = sum(light) / len(light) - sum(dark) / len(dark) if dark and light else 0.0
+    return "".join(answer), palette, spread
 
 
 def order_key(artwork_id):
@@ -214,7 +228,7 @@ def clean_artist(artist):
     return "" if artist.lower() in UNKNOWN_ARTISTS else artist
 
 
-def make_entry(artwork_id, record, orientation, answer, fine):
+def make_entry(artwork_id, record, orientation, answer, palette, fine):
     museum, number = artwork_id.split("-", 1)
     if museum == "met":
         title = record.get("title") or ""
@@ -236,8 +250,17 @@ def make_entry(artwork_id, record, orientation, answer, fine):
         "cols": cols,
         "rows": rows,
         "answer": answer,
+        "palette": palette,
         "fine": fine,
     }
+
+
+def is_valid_palette(palette):
+    return (
+        isinstance(palette, list)
+        and len(palette) == 3
+        and all(isinstance(c, str) and re.fullmatch(r"#[0-9a-f]{6}", c) for c in palette)
+    )
 
 
 def validate(artworks, image_dir):
@@ -258,6 +281,10 @@ def validate(artworks, image_dir):
             errors.append(f"{artwork_id}: fine.answer がないか、長さが fine.cols×fine.rows と合わない")
         if set(fine_answer) - set("012"):
             errors.append(f"{artwork_id}: fine.answer に 0・1・2 以外の文字がある")
+        if not is_valid_palette(entry.get("palette")):
+            errors.append(f"{artwork_id}: palette が \"#rrggbb\" の3つの並びでない")
+        if fine and not is_valid_palette(fine.get("palette")):
+            errors.append(f"{artwork_id}: fine.palette が \"#rrggbb\" の3つの並びでない")
         if not (image_dir / entry.get("image", "")).is_file():
             errors.append(f"{artwork_id}: 画像がない")
     return errors
@@ -455,32 +482,40 @@ _analysis = {}
 
 
 def analyze(path):
-    """保存した画像から (向き, 3値の正解, 明暗の幅) を出す。"""
+    """保存した画像から (向き, 3値の正解, パレット, 明暗の幅) を出す。"""
     key = str(path)
     if key not in _analysis:
         w, h, orientation, lightness = image_lightness(path)
-        answer, spread = classify(cell_means(lightness, w, h, *GRIDS[orientation]))
-        _analysis[key] = (orientation, answer, spread)
+        answer, palette, spread = classify(cell_means(lightness, w, h, *GRIDS[orientation]))
+        _analysis[key] = (orientation, answer, palette, spread)
     return _analysis[key]
 
 
 def analyze_fine(path):
-    """保存した画像から、細かいマス目の {"cols", "rows", "answer"} を出す。境目は細かいマスの分布で決め直す。"""
+    """保存した画像から、細かいマス目の {"cols", "rows", "answer", "palette"} を出す。
+    パレットは細かいマスの明るさで決め直す。"""
     w, h, orientation, lightness = image_lightness(path)
     cols, rows = FINE_GRIDS[orientation]
-    answer, _ = classify(cell_means(lightness, w, h, cols, rows))
-    return {"cols": cols, "rows": rows, "answer": answer}
+    answer, palette, _ = classify(cell_means(lightness, w, h, cols, rows))
+    return {"cols": cols, "rows": rows, "answer": answer, "palette": palette}
 
 
 def cached_analyze(path, cache):
-    """analyze の結果を、ファイル名と更新時刻を鍵にして cache から読む。なければ出して cache に書く。"""
+    """analyze の結果を、ファイル名と更新時刻を鍵にして cache から読む。なければ出して cache に書く。
+    パレットを足す前の結果（palette がない）は使わない。"""
     mtime = path.stat().st_mtime_ns
     hit = cache.get(path.name)
-    if hit and hit["mtime_ns"] == mtime:
-        return hit["orientation"], hit["answer"], hit["spread"]
-    orientation, answer, spread = analyze(path)
-    cache[path.name] = {"mtime_ns": mtime, "orientation": orientation, "answer": answer, "spread": spread}
-    return orientation, answer, spread
+    if hit and hit["mtime_ns"] == mtime and "palette" in hit:
+        return hit["orientation"], hit["answer"], hit["palette"], hit["spread"]
+    orientation, answer, palette, spread = analyze(path)
+    cache[path.name] = {
+        "mtime_ns": mtime,
+        "orientation": orientation,
+        "answer": answer,
+        "palette": palette,
+        "spread": spread,
+    }
+    return orientation, answer, palette, spread
 
 
 # ---- 1枚ずつの判定 ----
@@ -567,11 +602,11 @@ def judge(artwork_id, client, online, args):
             return exclude(reason, detail)
         save_cropped(im, img_path)
 
-    orientation, answer, spread = analyze(img_path)
+    orientation, answer, palette, spread = analyze(img_path)
     result.update(spread=spread, orientation=orientation, answer=answer)
     if spread < args.min_spread:
         return exclude("low_spread", f"spread={spread:.1f}")
-    entry = make_entry(artwork_id, record, orientation, answer, analyze_fine(img_path))
+    entry = make_entry(artwork_id, record, orientation, answer, palette, analyze_fine(img_path))
     return {**result, "status": "adopt", "entry": entry}
 
 
@@ -585,9 +620,6 @@ body { background: #3a3a3a; color: #eee; font: 14px/1.5 sans-serif; margin: 16px
 .portrait img, .portrait .grid { width: 240px; }
 .grid { display: grid; }
 .grid i { aspect-ratio: 1; }
-.c0 { background: #000; }
-.c1 { background: #808080; }
-.c2 { background: #fff; }
 .info { max-width: 360px; }
 .adopted { color: #9d9; }
 .excluded { color: #e88; }
@@ -606,7 +638,7 @@ def write_review(artworks, excluded, min_spread):
     loaded = load_json(ANALYSIS_PATH, {})
     cache = dict(loaded)
     for artwork_id, (path, src) in paths.items():
-        orientation, answer, spread = cached_analyze(path, cache)
+        orientation, answer, palette, spread = cached_analyze(path, cache)
         record = load_record(artwork_id) or {}
         if artwork_id in in_index:
             status, cls = "採用", "adopted"
@@ -616,7 +648,8 @@ def write_review(artworks, excluded, min_spread):
             status, cls = "除外 low_spread", "excluded"
         else:
             status, cls = "未採用", ""
-        items.append((spread, artwork_id, orientation, answer, src, (record.get("title") or "").strip(), status, cls))
+        title = (record.get("title") or "").strip()
+        items.append((spread, artwork_id, orientation, answer, palette, src, title, status, cls))
     items.sort()
     cache = {path.name: cache[path.name] for path, _ in paths.values()}
     if cache != loaded:
@@ -631,12 +664,12 @@ def write_review(artworks, excluded, min_spread):
         f"<h1>作品の確認（{len(items)}件、明暗の幅の小さい順）</h1>",
     ]
     marked = False
-    for spread, artwork_id, orientation, answer, src, title, status, cls in items:
+    for spread, artwork_id, orientation, answer, palette, src, title, status, cls in items:
         if not marked and spread >= min_spread:
             parts.append(f'<div class="threshold">ここから下は --min-spread {min_spread:g} 以上</div>')
             marked = True
         cols = GRIDS[orientation][0]
-        cells = "".join(f'<i class="c{v}"></i>' for v in answer)
+        cells = "".join(f'<i style="background: {palette[int(v)]}"></i>' for v in answer)
         parts.append(
             f'<div class="item {orientation}">'
             f'<img src="{html.escape(src)}" alt="">'
@@ -706,11 +739,13 @@ def main(argv=None):
                 print(f"excluded.txt にあるので外した: {entry['id']}")
         write_index(artworks)
 
-    # 細かいマス目を足す前に入れた作品には、artworks/ の画像から細かいマスの正解を作って足す
-    missing = [entry for entry in artworks if "fine" not in entry]
+    # 細かいマス目かパレットを足す前に入れた作品は、artworks/ の画像から粗いマスと細かいマスの正解を作り直す
+    missing = [entry for entry in artworks if "palette" not in entry or "palette" not in entry.get("fine", {})]
     for n, entry in enumerate(missing, 1):
-        entry["fine"] = analyze_fine(ARTWORKS_DIR / entry["image"])
-        print(f"[{n}/{len(missing)}] {entry['id']} 細かいマスの正解を足した")
+        path = ARTWORKS_DIR / entry["image"]
+        _, entry["answer"], entry["palette"], spread = analyze(path)
+        entry["fine"] = analyze_fine(path)
+        print(f"[{n}/{len(missing)}] {entry['id']} 正解を作り直した spread={spread:.1f}")
     if missing:
         write_index(artworks)
 
