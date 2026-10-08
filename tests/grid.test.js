@@ -1,6 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseAnswer, brushCells, lineCells, paintBrush, floodFill, cellAt } from "../lib/grid.js";
+import {
+  parseAnswer,
+  brushCells,
+  lineCells,
+  paintBrush,
+  floodFill,
+  cellAt,
+  isValidGrid,
+  pickGrid,
+} from "../lib/grid.js";
 
 // "0"・"1"・"2" を行ごとに並べた文字列の配列からマス目を作る
 function grid(lines) {
@@ -110,4 +119,21 @@ test("cellAt は位置からマスを出し、外と右端・下端ちょうど�
   assert.equal(cellAt(100, 420, 560, 420, 16, 12), null);
   assert.equal(cellAt(-0.1, 100, 560, 420, 16, 12), null);
   assert.equal(cellAt(100, -1, 560, 420, 16, 12), null);
+});
+
+test("isValidGrid は answer の長さと文字を確かめる", () => {
+  assert.equal(isValidGrid({ cols: 2, rows: 1, answer: "02" }), true);
+  assert.equal(isValidGrid({ cols: 2, rows: 1, answer: "0" }), false);
+  assert.equal(isValidGrid({ cols: 2, rows: 1, answer: "03" }), false);
+  assert.equal(isValidGrid({ cols: "2", rows: 1, answer: "02" }), false);
+  assert.equal(isValidGrid(undefined), false);
+});
+
+test("pickGrid は fine なら細かいほうを、なければ粗いほうを返す", () => {
+  const coarse = { cols: 2, rows: 1, answer: "02" };
+  const artwork = { id: "a", ...coarse, fine: { cols: 3, rows: 1, answer: "012" } };
+  assert.deepEqual(pickGrid(artwork, false), coarse);
+  assert.deepEqual(pickGrid(artwork, true), { cols: 3, rows: 1, answer: "012" });
+  assert.deepEqual(pickGrid({ id: "a", ...coarse }, true), coarse);
+  assert.deepEqual(pickGrid({ ...artwork, fine: { cols: 3, rows: 1, answer: "01" } }, true), coarse);
 });

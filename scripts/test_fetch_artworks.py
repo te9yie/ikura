@@ -12,6 +12,7 @@ from fetch_artworks import (
     Client,
     FetchFailed,
     analyze,
+    analyze_fine,
     cached_analyze,
     cell_means,
     classify,
@@ -21,6 +22,7 @@ from fetch_artworks import (
     order_key,
     parse_excluded,
     srgb_to_lightness,
+    validate,
 )
 
 
@@ -165,6 +167,54 @@ class CachedAnalyzeTest(unittest.TestCase):
             self.assertEqual(cached_analyze(self.path, cache), ("landscape", "x", 1.0))
         m.assert_called_once()
         self.assertEqual(cache["met-1.jpg"]["mtime_ns"], mtime + 10**9)
+
+
+class AnalyzeFineTest(unittest.TestCase):
+    def make_image(self, size):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "met-1.jpg"
+        w, h = size
+        im = Image.new("RGB", size)
+        im.putdata([(x * 255 // w,) * 3 for _ in range(h) for x in range(w)])
+        im.save(path, "JPEG")
+        return path
+
+    def test_landscape_is_24_by_18_and_dark_to_light(self):
+        fine = analyze_fine(self.make_image((800, 600)))
+        self.assertEqual((fine["cols"], fine["rows"]), (24, 18))
+        self.assertEqual(len(fine["answer"]), 24 * 18)
+        # 左から右へ明るくなる画像なので、どの行も 0 が8つ、1 が8つ、2 が8つ並ぶ
+        self.assertEqual(fine["answer"][:24], "0" * 8 + "1" * 8 + "2" * 8)
+
+    def test_portrait_is_18_by_24(self):
+        fine = analyze_fine(self.make_image((600, 800)))
+        self.assertEqual((fine["cols"], fine["rows"]), (18, 24))
+
+
+class ValidateTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        (self.dir / "met-1.jpg").write_bytes(b"")
+        self.entry = {
+            "id": "met-1",
+            "image": "met-1.jpg",
+            "cols": 2,
+            "rows": 1,
+            "answer": "01",
+            "fine": {"cols": 3, "rows": 1, "answer": "012"},
+        }
+
+    def test_valid_entry_has_no_errors(self):
+        self.assertEqual(validate([self.entry], self.dir), [])
+
+    def test_missing_or_short_fine_is_an_error(self):
+        without = {k: v for k, v in self.entry.items() if k != "fine"}
+        short = {**self.entry, "fine": {"cols": 3, "rows": 1, "answer": "01"}}
+        self.assertEqual(len(validate([without], self.dir)), 1)
+        self.assertEqual(len(validate([short], self.dir)), 1)
 
 
 if __name__ == "__main__":

@@ -1,18 +1,22 @@
 // 入口。状態を持ち、DOMとイベントをつなぐ。ブラウザに触るのはこのファイルだけにする
 import { localDateKey, readSwap, writeSwap, clearSwap, pickArtwork } from "./lib/day.js";
-import { parseAnswer, lineCells, paintBrush, floodFill, cellAt } from "./lib/grid.js";
+import { parseAnswer, lineCells, paintBrush, floodFill, cellAt, isValidGrid, pickGrid } from "./lib/grid.js";
 import { fitLayout, fitResultLayout, markSize } from "./lib/layout.js";
 import { score, percent } from "./lib/score.js";
 
-// 戻せる回数。写しは1回 cols × rows バイトなので、100回でも20KBに届かない
+// 戻せる回数。写しは1回 cols × rows バイトなので、細かいマス目で100回でも50KBに届かない
 const HISTORY_LIMIT = 100;
 const BRUSH_SIZE = { brush1: 1, brush3: 3 };
+// 細かいマス目を選んでいれば "fine"。日をまたいでも残す
+const FINE_KEY = "ikura.fine";
 
 const state = {
   view: "loading", // "loading" | "paint" | "result" | "error"
   artworks: [], // index.json の artworks のうち、形の正しいもの
   today: null, // 絵を選んだときのローカル日付
   artwork: null, // 今出している作品（index.json の1件）
+  fine: false, // 細かいマス目を選んでいる
+  grid: null, // 今のマス目の { cols, rows, answer }。pickGrid(artwork, fine) の戻り値
   imageFailed: false, // お手本の画像を読めなかった
   answer: null, // Uint8Array(cols*rows)。answer の文字列を 0/1/2 にしたもの
   cells: null, // Uint8Array(cols*rows)。自分の塗り。最初は全部 1
@@ -42,6 +46,7 @@ const els = {
   tools: document.querySelectorAll("[data-tool]"),
   undo: document.querySelector("#undo"),
   timer: document.querySelector(".timer"),
+  fine: document.querySelector("#fine"),
   swap: document.querySelector("#swap"),
   check: document.querySelector("#check"),
   back: document.querySelector("#back"),
@@ -72,14 +77,27 @@ function getStorage() {
   }
 }
 
+// 細かいマス目の形は pickGrid で確かめ、合わなければ粗いほうにする
 function isValidArtwork(artwork) {
-  return (
-    typeof artwork?.id === "string" &&
-    typeof artwork.image === "string" &&
-    typeof artwork.answer === "string" &&
-    artwork.answer.length === artwork.cols * artwork.rows &&
-    /^[012]*$/.test(artwork.answer)
-  );
+  return typeof artwork?.id === "string" && typeof artwork.image === "string" && isValidGrid(artwork);
+}
+
+function readFine(storage) {
+  try {
+    return storage.getItem(FINE_KEY) === "fine";
+  } catch {
+    return false;
+  }
+}
+
+// 書けなくてもマス目は替える。開き直すと粗いほうに戻るだけなので、失敗は無視する
+function writeFine(storage, fine) {
+  try {
+    if (fine) storage.setItem(FINE_KEY, "fine");
+    else storage.removeItem(FINE_KEY);
+  } catch {
+    // 無視する
+  }
 }
 
 async function loadArtworks() {
@@ -103,10 +121,11 @@ function imagePath(artwork) {
 // 塗りと経過時間は捨て、全部「中」から始める
 function showArtwork(artwork) {
   state.artwork = artwork;
+  state.grid = pickGrid(artwork, state.fine);
   state.view = "loading";
   state.imageFailed = false;
-  state.answer = parseAnswer(artwork.answer);
-  state.cells = new Uint8Array(artwork.cols * artwork.rows).fill(1);
+  state.answer = parseAnswer(state.grid.answer);
+  state.cells = new Uint8Array(state.grid.cols * state.grid.rows).fill(1);
   state.history = [];
   state.stroke = null;
   state.result = null;
@@ -147,10 +166,19 @@ function swapArtwork() {
   showArtwork(next);
 }
 
+// 粗いマス目と細かいマス目を切り替え、同じ絵を全部「中」から塗り直す。経過時間も0から数え直す
+function toggleFine() {
+  if (state.view !== "paint" || state.stroke !== null) return;
+  if (state.history.length > 0 && !confirm("塗ったマスが消えます。マスの細かさを変えますか")) return;
+  state.fine = !state.fine;
+  writeFine(getStorage(), state.fine);
+  showArtwork(state.artwork);
+}
+
 // main の大きさと作品の向きから、お手本とマス目の大きさと、答え合わせの画面の大きさを決める
 function updateLayout() {
   if (state.artwork === null || mainSize === null) return;
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   const { width, height } = mainSize;
   const { direction, cell } = fitLayout({ width, height, cols, rows, gap: GAP, captionHeight: CAPTION_HEIGHT });
   state.cell = cell;
@@ -170,7 +198,7 @@ function updateLayout() {
 
 // 中身の画素は devicePixelRatio 倍にして、高精細の画面でぼやけないようにする
 function sizeCanvas(canvas, cell) {
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   canvas.width = Math.round(cell * cols * state.dpr);
   canvas.height = Math.round(cell * rows * state.dpr);
 }
@@ -179,7 +207,7 @@ function sizeCanvas(canvas, cell) {
 // mismatch を渡すと、ずれたマスの真ん中に正解の色の四角を描く。自分の色と正解の色は必ず違うので、
 // 白・灰・黒のどの組み合わせでも見え、どちらへずれたかが印だけで分かる
 function drawCells(canvas, cells, cell, mismatch = null) {
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
   for (let row = 0; row < rows; row++) {
@@ -275,6 +303,8 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.tool === state.tool));
   }
   els.undo.disabled = !painting || state.history.length === 0;
+  els.fine.disabled = !painting;
+  els.fine.setAttribute("aria-pressed", String(state.fine));
   els.check.disabled = !painting;
   syncTimer();
   updateTimerText();
@@ -304,14 +334,14 @@ els.image.addEventListener("error", () => {
 // 指の位置のマス。外なら null
 function strokeCell(event) {
   const { rect } = state.stroke;
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   return cellAt(event.clientX - rect.left, event.clientY - rect.top, rect.width, rect.height, cols, rows);
 }
 
 // 前に塗ったマスから今のマスまでを線でつないで塗る。速く動かすと pointermove の間に何マスも進むため
 function brushTo(cell) {
   const { stroke } = state;
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   const from = stroke.last ?? cell;
   let changed = false;
   for (const { col, row } of lineCells(from.col, from.row, cell.col, cell.row)) {
@@ -336,7 +366,7 @@ els.grid.addEventListener("pointerdown", (event) => {
   };
   const cell = strokeCell(event);
   if (cell === null) return;
-  const { cols, rows } = state.artwork;
+  const { cols, rows } = state.grid;
   const changed =
     state.tool === "fill"
       ? floodFill(state.cells, cols, rows, cell.col, cell.row, state.color)
@@ -398,6 +428,7 @@ els.undo.addEventListener("click", () => {
   render();
 });
 
+els.fine.addEventListener("click", toggleFine);
 els.swap.addEventListener("click", swapArtwork);
 
 // 答え合わせで経過時間が止まり、「塗りにもどる」で塗りを残したまま続きから数える
@@ -472,6 +503,7 @@ if ("serviceWorker" in navigator) {
     .catch((error) => console.error("service worker を登録できなかった", error));
 }
 
+state.fine = readFine(getStorage());
 try {
   state.artworks = await loadArtworks();
 } catch (error) {
