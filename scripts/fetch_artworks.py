@@ -8,6 +8,7 @@ artworks/ に画像と index.json を書く。
     uv run scripts/fetch_artworks.py                # index.json が30枚になるまで足す
     uv run scripts/fetch_artworks.py --count 300
     uv run scripts/fetch_artworks.py --offline      # ネットワークに出ず、キャッシュだけで判定する
+    uv run scripts/fetch_artworks.py --reanalyze    # index.json の全部の作品の正解を作り直す
 
 キャッシュと確認用の .cache/review.html は .cache/ に置く。
 """
@@ -157,17 +158,45 @@ def cell_means(lightness, width, height, cols, rows):
     return means
 
 
-def classify(means):
-    """マスの平均から、絵のパレットと3値の正解を作り、(answer, palette, 明暗の幅) を返す。
+def pixel_palette(lightness):
+    """ピクセルごとのL*を3つの塊にまとめ（1次元のk-means）、塊ごとの平均の明るさの灰色を返す。
 
-    パレットは一番暗いマス、一番明るいマス、その2つのL*の真ん中の3色の灰色で、暗・中・明の順の
-    "#rrggbb" のリストにする。answer は、マスごとにL*が一番近いパレットの色を選んだ行優先の
-    "0"/"1"/"2" の文字列。ちょうど真ん中のマスは暗いほうにする。
+    戻り値は暗・中・明の順のsRGBの値（0〜255）。L*を0.1刻みのヒストグラムにしてから回すので、
+    ピクセルの数によらず速い。最初の中心は一番暗いピクセル、一番明るいピクセル、その真ん中にする。
+    分布の分位点から始めると、同じ明るさの広い面があるとき中心が重なって塊が2つになる。
+    """
+    if not lightness:
+        raise ValueError("ピクセルがない")
+    hist = [0] * 1001
+    for v in lightness:
+        hist[min(1000, max(0, round(v * 10)))] += 1
+    used = [i for i, count in enumerate(hist) if count]
+    lo, hi = used[0] / 10, used[-1] / 10
+    centers = [lo, (lo + hi) / 2, hi]
+    for _ in range(100):
+        sums, counts = [0.0] * 3, [0] * 3
+        t_dark, t_light = (centers[0] + centers[1]) / 2, (centers[1] + centers[2]) / 2
+        for i, count in enumerate(hist):
+            if count:
+                v = i / 10
+                k = 0 if v <= t_dark else 2 if v > t_light else 1
+                sums[k] += v * count
+                counts[k] += count
+        updated = [sums[k] / counts[k] if counts[k] else centers[k] for k in range(3)]
+        if updated == centers:
+            break
+        centers = updated
+    return [lightness_to_gray(c) for c in centers]
+
+
+def classify(means, grays):
+    """マスの平均と、暗・中・明の順のパレットの灰色（0〜255）から、(answer, palette, 明暗の幅) を返す。
+
+    answer は、マスごとにL*が一番近いパレットの色を選んだ行優先の "0"/"1"/"2" の文字列。
+    ちょうど真ん中のマスは暗いほうにする。palette は "#rrggbb" のリスト。
     """
     if not means:
         raise ValueError("マスがない")
-    lo, hi = min(means), max(means)
-    grays = [lightness_to_gray(lo), lightness_to_gray((lo + hi) / 2), lightness_to_gray(hi)]
     palette = [f"#{g:02x}{g:02x}{g:02x}" for g in grays]
     if grays[0] == grays[2]:
         return "0" * len(means), palette, 0.0
@@ -479,37 +508,45 @@ def image_lightness(path):
 
 
 _analysis = {}
+# 3値の正解の作り方を変えたら上げる。.cache/analysis.json の古い結果を使わないようにする
+ANALYSIS_METHOD = 2
+
+
+def _analyze_all(path):
+    key = str(path)
+    if key not in _analysis:
+        w, h, orientation, lightness = image_lightness(path)
+        grays = pixel_palette(lightness)
+        answer, palette, spread = classify(cell_means(lightness, w, h, *GRIDS[orientation]), grays)
+        cols, rows = FINE_GRIDS[orientation]
+        fine_answer, _, _ = classify(cell_means(lightness, w, h, cols, rows), grays)
+        fine = {"cols": cols, "rows": rows, "answer": fine_answer, "palette": palette}
+        _analysis[key] = ((orientation, answer, palette, spread), fine)
+    return _analysis[key]
 
 
 def analyze(path):
     """保存した画像から (向き, 3値の正解, パレット, 明暗の幅) を出す。"""
-    key = str(path)
-    if key not in _analysis:
-        w, h, orientation, lightness = image_lightness(path)
-        answer, palette, spread = classify(cell_means(lightness, w, h, *GRIDS[orientation]))
-        _analysis[key] = (orientation, answer, palette, spread)
-    return _analysis[key]
+    return _analyze_all(path)[0]
 
 
 def analyze_fine(path):
     """保存した画像から、細かいマス目の {"cols", "rows", "answer", "palette"} を出す。
-    パレットは細かいマスの明るさで決め直す。"""
-    w, h, orientation, lightness = image_lightness(path)
-    cols, rows = FINE_GRIDS[orientation]
-    answer, palette, _ = classify(cell_means(lightness, w, h, cols, rows))
-    return {"cols": cols, "rows": rows, "answer": answer, "palette": palette}
+    パレットは絵全体のピクセルから作るので、粗いマス目と同じ。"""
+    return _analyze_all(path)[1]
 
 
 def cached_analyze(path, cache):
     """analyze の結果を、ファイル名と更新時刻を鍵にして cache から読む。なければ出して cache に書く。
-    パレットを足す前の結果（palette がない）は使わない。"""
+    作り方が ANALYSIS_METHOD と違う前の結果は使わない。"""
     mtime = path.stat().st_mtime_ns
     hit = cache.get(path.name)
-    if hit and hit["mtime_ns"] == mtime and "palette" in hit:
+    if hit and hit["mtime_ns"] == mtime and hit.get("method") == ANALYSIS_METHOD:
         return hit["orientation"], hit["answer"], hit["palette"], hit["spread"]
     orientation, answer, palette, spread = analyze(path)
     cache[path.name] = {
         "mtime_ns": mtime,
+        "method": ANALYSIS_METHOD,
         "orientation": orientation,
         "answer": answer,
         "palette": palette,
@@ -693,6 +730,9 @@ def parse_args(argv):
     parser.add_argument("--min-spread", type=float, default=15, help="明暗の幅がこれより小さい絵を外す")
     parser.add_argument("--min-keep", type=float, default=0.8, help="切り抜いたあとに残る面積の割合がこれより小さい絵を外す")
     parser.add_argument("--offline", action="store_true", help="ネットワークに出ず、キャッシュにある候補だけで判定する")
+    parser.add_argument(
+        "--reanalyze", action="store_true", help="index.json の全部の作品の正解とパレットを artworks/ の画像から作り直す"
+    )
     args = parser.parse_args(argv)
     args.sources = [s.strip() for s in args.sources.split(",") if s.strip()]
     for source in args.sources:
@@ -739,8 +779,13 @@ def main(argv=None):
                 print(f"excluded.txt にあるので外した: {entry['id']}")
         write_index(artworks)
 
-    # 細かいマス目かパレットを足す前に入れた作品は、artworks/ の画像から粗いマスと細かいマスの正解を作り直す
-    missing = [entry for entry in artworks if "palette" not in entry or "palette" not in entry.get("fine", {})]
+    # 細かいマス目かパレットを足す前に入れた作品と、--reanalyze のときは全部の作品の正解を、
+    # artworks/ の画像から作り直す
+    missing = [
+        entry
+        for entry in artworks
+        if args.reanalyze or "palette" not in entry or "palette" not in entry.get("fine", {})
+    ]
     for n, entry in enumerate(missing, 1):
         path = ARTWORKS_DIR / entry["image"]
         _, entry["answer"], entry["palette"], spread = analyze(path)
