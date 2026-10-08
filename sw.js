@@ -2,7 +2,7 @@
 // アプリのファイルは版ごとのキャッシュから出し、作品の一覧は毎回取りに行き、作品の画像は開いたものだけを残す
 
 // PRECACHE のファイルの中身のハッシュ。ファイルを変えると tests/pwa.test.js が落ち、入れる値を出す
-const VERSION = "fa1bf96ae6b9";
+const VERSION = "c7e19148a355";
 
 // "./" が index.html の中身になる。manifest・アイコン・sw.js はオフラインで要らないので入れない
 const PRECACHE = ["./", "style.css", "app.js", "lib/day.js", "lib/grid.js", "lib/layout.js", "lib/score.js"];
