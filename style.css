@@ -176,7 +176,7 @@ main:not([data-direction="column"]) #grid {
   text-align: center;
 }
 
-/* 塗る道具の段と、経過時間・別の絵・答え合わせの段を、幅が足りれば1段に、足りなければ2段に並べる */
+/* 塗る道具の段と、経過時間・細かいマス・別の絵・答え合わせの段を、幅が足りれば1段に、足りなければ2段に並べる */
 .toolbar {
   display: flex;
   flex-wrap: wrap;

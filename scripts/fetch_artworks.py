@@ -74,7 +74,9 @@ MET_OBJECT_URL = "https://collectionapi.metmuseum.org/public/collection/v1/objec
 
 LONG_SIDE = 800
 SHORT_SIDE = 600
-CELL = 50
+# 向きごとのマス目の (cols, rows)。明暗の幅は粗いほうで見る
+GRIDS = {"landscape": (16, 12), "portrait": (12, 16)}
+FINE_GRIDS = {"landscape": (24, 18), "portrait": (18, 24)}
 # AICのIIIFで843幅を取ると、横長で縦横比がこれを超えたとき4:3に切った幅が800pxに届かない。
 AIC_WIDE_ASPECT = 843 / 800 * 4 / 3
 
@@ -212,7 +214,7 @@ def clean_artist(artist):
     return "" if artist.lower() in UNKNOWN_ARTISTS else artist
 
 
-def make_entry(artwork_id, record, orientation, answer):
+def make_entry(artwork_id, record, orientation, answer, fine):
     museum, number = artwork_id.split("-", 1)
     if museum == "met":
         title = record.get("title") or ""
@@ -222,7 +224,7 @@ def make_entry(artwork_id, record, orientation, answer):
         title = record.get("title") or ""
         artist = record.get("artist_title") or (record.get("artist_display") or "").split("\n", 1)[0]
         url = f"https://www.artic.edu/artworks/{number}"
-    cols, rows = (16, 12) if orientation == "landscape" else (12, 16)
+    cols, rows = GRIDS[orientation]
     return {
         "id": artwork_id,
         "image": f"{artwork_id}.jpg",
@@ -234,6 +236,7 @@ def make_entry(artwork_id, record, orientation, answer):
         "cols": cols,
         "rows": rows,
         "answer": answer,
+        "fine": fine,
     }
 
 
@@ -249,6 +252,12 @@ def validate(artworks, image_dir):
             errors.append(f"{artwork_id}: answer の長さが cols×rows と合わない")
         if set(answer) - set("012"):
             errors.append(f"{artwork_id}: answer に 0・1・2 以外の文字がある")
+        fine = entry.get("fine") or {}
+        fine_answer = fine.get("answer", "")
+        if not fine_answer or len(fine_answer) != fine.get("cols", 0) * fine.get("rows", 0):
+            errors.append(f"{artwork_id}: fine.answer がないか、長さが fine.cols×fine.rows と合わない")
+        if set(fine_answer) - set("012"):
+            errors.append(f"{artwork_id}: fine.answer に 0・1・2 以外の文字がある")
         if not (image_dir / entry.get("image", "")).is_file():
             errors.append(f"{artwork_id}: 画像がない")
     return errors
@@ -428,6 +437,20 @@ def save_cropped(im, path):
     os.replace(tmp, path)
 
 
+def image_lightness(path):
+    """保存した画像から (幅, 高さ, 向き, ピクセルごとのL*の行優先のリスト) を出す。"""
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        data = im.tobytes()
+    lin = LINEAR
+    lightness = [
+        luminance_to_lightness(0.2126 * lin[r] + 0.7152 * lin[g] + 0.0722 * lin[b])
+        for r, g, b in zip(data[0::3], data[1::3], data[2::3])
+    ]
+    return w, h, "landscape" if w >= h else "portrait", lightness
+
+
 _analysis = {}
 
 
@@ -435,19 +458,18 @@ def analyze(path):
     """保存した画像から (向き, 3値の正解, 明暗の幅) を出す。"""
     key = str(path)
     if key not in _analysis:
-        with Image.open(path) as im:
-            im = im.convert("RGB")
-            w, h = im.size
-            data = im.tobytes()
-        lin = LINEAR
-        lightness = [
-            luminance_to_lightness(0.2126 * lin[r] + 0.7152 * lin[g] + 0.0722 * lin[b])
-            for r, g, b in zip(data[0::3], data[1::3], data[2::3])
-        ]
-        orientation = "landscape" if w >= h else "portrait"
-        answer, spread = classify(cell_means(lightness, w, h, w // CELL, h // CELL))
+        w, h, orientation, lightness = image_lightness(path)
+        answer, spread = classify(cell_means(lightness, w, h, *GRIDS[orientation]))
         _analysis[key] = (orientation, answer, spread)
     return _analysis[key]
+
+
+def analyze_fine(path):
+    """保存した画像から、細かいマス目の {"cols", "rows", "answer"} を出す。境目は細かいマスの分布で決め直す。"""
+    w, h, orientation, lightness = image_lightness(path)
+    cols, rows = FINE_GRIDS[orientation]
+    answer, _ = classify(cell_means(lightness, w, h, cols, rows))
+    return {"cols": cols, "rows": rows, "answer": answer}
 
 
 def cached_analyze(path, cache):
@@ -549,7 +571,8 @@ def judge(artwork_id, client, online, args):
     result.update(spread=spread, orientation=orientation, answer=answer)
     if spread < args.min_spread:
         return exclude("low_spread", f"spread={spread:.1f}")
-    return {**result, "status": "adopt", "entry": make_entry(artwork_id, record, orientation, answer)}
+    entry = make_entry(artwork_id, record, orientation, answer, analyze_fine(img_path))
+    return {**result, "status": "adopt", "entry": entry}
 
 
 # ---- 確認用のHTML ----
@@ -612,7 +635,7 @@ def write_review(artworks, excluded, min_spread):
         if not marked and spread >= min_spread:
             parts.append(f'<div class="threshold">ここから下は --min-spread {min_spread:g} 以上</div>')
             marked = True
-        cols = 16 if orientation == "landscape" else 12
+        cols = GRIDS[orientation][0]
         cells = "".join(f'<i class="c{v}"></i>' for v in answer)
         parts.append(
             f'<div class="item {orientation}">'
@@ -681,6 +704,14 @@ def main(argv=None):
             if entry["id"] in excluded:
                 (ARTWORKS_DIR / entry["image"]).unlink(missing_ok=True)
                 print(f"excluded.txt にあるので外した: {entry['id']}")
+        write_index(artworks)
+
+    # 細かいマス目を足す前に入れた作品には、artworks/ の画像から細かいマスの正解を作って足す
+    missing = [entry for entry in artworks if "fine" not in entry]
+    for n, entry in enumerate(missing, 1):
+        entry["fine"] = analyze_fine(ARTWORKS_DIR / entry["image"])
+        print(f"[{n}/{len(missing)}] {entry['id']} 細かいマスの正解を足した")
+    if missing:
         write_index(artworks)
 
     counts = Counter()
