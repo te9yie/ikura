@@ -22,6 +22,7 @@ from fetch_artworks import (
     merge_index,
     order_key,
     parse_excluded,
+    pixel_palette,
     srgb_to_lightness,
     validate,
 )
@@ -66,24 +67,38 @@ class CellMeansTest(unittest.TestCase):
             self.assertEqual(row, [0.0] * 8 + [100.0] * 8)
 
 
+class PixelPaletteTest(unittest.TestCase):
+    def test_three_flat_areas_become_the_palette(self):
+        # L* 10・50・90 のピクセルが 6:3:1 の絵。数の少ない明るい面もパレットの明になる
+        lightness = [10.0] * 600 + [50.0] * 300 + [90.0] * 100
+        grays = pixel_palette(lightness)
+        self.assertEqual(grays, [lightness_to_gray(10), lightness_to_gray(50), lightness_to_gray(90)])
+
+    def test_small_bright_spot_is_light_even_if_cells_average_it_away(self):
+        # 暗い面に、マスの平均では埋もれる細い明るい帯がある
+        lightness = [10.0] * 900 + [30.0] * 80 + [80.0] * 20
+        grays = pixel_palette(lightness)
+        self.assertEqual(grays[2], lightness_to_gray(80))
+
+
 class ClassifyTest(unittest.TestCase):
-    def test_palette_is_darkest_middle_and_lightest_cell(self):
+    def test_cells_go_to_nearest_palette_color(self):
+        grays = [lightness_to_gray(0), lightness_to_gray(50), lightness_to_gray(100)]
         means = [50.0, 100.0, 24.0, 0.0, 76.0, 26.0, 74.0]
-        answer, palette, spread = classify(means)
-        # L* 0・50・100 の灰色
+        answer, palette, spread = classify(means, grays)
         self.assertEqual(palette, ["#000000", "#777777", "#ffffff"])
         self.assertEqual(answer, "1200211")
         self.assertAlmostEqual(spread, (100 + 76) / 2 - (24 + 0) / 2)
 
-    def test_cells_go_to_nearest_palette_color_not_to_thirds(self):
-        # 暗いマスが多い絵でも三等分にはせず、一番明るいマスに近いものだけを明にする
-        means = [10.0] * 150 + [30.0] * 40 + [90.0] * 2
-        answer, palette, _ = classify(means)
-        self.assertEqual(Counter(answer), {"0": 150, "1": 40, "2": 2})
-        self.assertEqual(palette[0], "#" + "%02x" % lightness_to_gray(10) * 3)
+    def test_no_cell_near_light_gives_no_light(self):
+        grays = [lightness_to_gray(10), lightness_to_gray(30), lightness_to_gray(80)]
+        answer, _, spread = classify([10.0, 12.0, 30.0, 40.0], grays)
+        self.assertEqual(answer, "0011")
+        self.assertEqual(spread, 0)
 
-    def test_uniform_image_is_all_dark(self):
-        answer, palette, spread = classify([50.0] * 192)
+    def test_uniform_palette_is_all_dark(self):
+        g = lightness_to_gray(50)
+        answer, palette, spread = classify([50.0] * 192, [g, g, g])
         self.assertEqual(answer, "0" * 192)
         self.assertEqual(len(set(palette)), 1)
         self.assertEqual(spread, 0)
@@ -189,7 +204,7 @@ class AnalyzeFineTest(unittest.TestCase):
         row = fine["answer"][:24]
         self.assertEqual(row, "".join(sorted(row)))
         self.assertEqual(set(row), {"0", "1", "2"})
-        self.assertEqual(len(fine["palette"]), 3)
+        self.assertEqual(fine["palette"], analyze(self.make_image((800, 600)))[2])
 
     def test_portrait_is_18_by_24(self):
         fine = analyze_fine(self.make_image((600, 800)))
