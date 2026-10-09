@@ -1,12 +1,11 @@
 // 入口。状態を持ち、DOMとイベントをつなぐ。ブラウザに触るのはこのファイルだけにする
 import { localDateKey, readSwap, writeSwap, clearSwap, pickArtwork } from "./lib/day.js";
-import { parseAnswer, lineCells, paintBrush, floodFill, cellAt, isValidGrid, pickGrid } from "./lib/grid.js";
+import { parseAnswer, lineCells, paintCell, floodFill, cellAt, isValidGrid, pickGrid } from "./lib/grid.js";
 import { fitLayout, fitResultLayout, markSize } from "./lib/layout.js";
 import { score, percent } from "./lib/score.js";
 
 // 戻せる回数。写しは1回 cols × rows バイトなので、細かいマス目で100回でも50KBに届かない
 const HISTORY_LIMIT = 100;
-const BRUSH_SIZE = { brush1: 1, brush3: 3 };
 // 細かいマス目を選んでいれば "fine"。日をまたいでも残す
 const FINE_KEY = "ikura.fine";
 
@@ -21,7 +20,7 @@ const state = {
   answer: null, // Uint8Array(cols*rows)。answer の文字列を 0/1/2 にしたもの
   cells: null, // Uint8Array(cols*rows)。自分の塗り。最初は全部 1
   color: 0, // 0=暗, 1=中, 2=明
-  tool: "brush3", // "brush1" | "brush3" | "fill"
+  tool: "brush", // "brush" | "fill"
   history: [], // 塗る操作の前の cells の写し。最大 HISTORY_LIMIT
   stroke: null, // 指を置いている間だけ { pointerId, last: {col,row}|null, before, changed, rect }
   timer: { elapsed: 0, since: null }, // since は performance.now() の値。止まっているときは null
@@ -350,11 +349,11 @@ function strokeCell(event) {
 // 前に塗ったマスから今のマスまでを線でつないで塗る。速く動かすと pointermove の間に何マスも進むため
 function brushTo(cell) {
   const { stroke } = state;
-  const { cols, rows } = state.grid;
+  const { cols } = state.grid;
   const from = stroke.last ?? cell;
   let changed = false;
   for (const { col, row } of lineCells(from.col, from.row, cell.col, cell.row)) {
-    if (paintBrush(state.cells, cols, rows, col, row, BRUSH_SIZE[state.tool], state.color)) changed = true;
+    if (paintCell(state.cells, cols, col, row, state.color)) changed = true;
   }
   stroke.last = cell;
   return changed;
