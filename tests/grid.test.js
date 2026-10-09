@@ -2,10 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parseAnswer,
-  brushCells,
   lineCells,
-  paintBrush,
-  floodFill,
+  paintCell,
   cellAt,
   isValidGrid,
   isValidPalette,
@@ -23,23 +21,8 @@ function toLines(cells, cols) {
   return lines;
 }
 
-function key(cells) {
-  return cells.map((cell) => `${cell.col},${cell.row}`);
-}
-
 test("parseAnswer は文字を 0・1・2 の数にする", () => {
   assert.deepEqual(Array.from(parseAnswer("0120")), [0, 1, 2, 0]);
-});
-
-test("brushCells は奇数なら真ん中、偶数なら左上寄りを中心にする", () => {
-  assert.deepEqual(key(brushCells(5, 5, 1, 16, 12)), ["5,5"]);
-  assert.deepEqual(key(brushCells(5, 5, 3, 16, 12)), ["4,4", "5,4", "6,4", "4,5", "5,5", "6,5", "4,6", "5,6", "6,6"]);
-  assert.deepEqual(key(brushCells(5, 5, 2, 16, 12)), ["5,5", "6,5", "5,6", "6,6"]);
-});
-
-test("brushCells はマス目の外にはみ出たマスを捨てる", () => {
-  assert.deepEqual(key(brushCells(0, 0, 3, 16, 12)), ["0,0", "1,0", "0,1", "1,1"]);
-  assert.deepEqual(key(brushCells(15, 11, 3, 16, 12)), ["14,10", "15,10", "14,11", "15,11"]);
 });
 
 test("lineCells は両端を含み、隣りのマスへ1つずつ進む", () => {
@@ -66,50 +49,11 @@ test("lineCells は両端を含み、隣りのマスへ1つずつ進む", () => 
   }
 });
 
-test("paintBrush は変わったマスがあれば true、なければ false を返す", () => {
-  const { cells, cols, rows } = grid(["1111", "1111", "1111"]);
-  assert.equal(paintBrush(cells, cols, rows, 0, 0, 3, 0), true);
-  assert.deepEqual(toLines(cells, cols), ["0011", "0011", "1111"]);
-  assert.equal(paintBrush(cells, cols, rows, 0, 0, 1, 0), false);
-});
-
-test("floodFill は同じ値で上下左右につながったマスだけを塗る", () => {
-  const { cells, cols, rows } = grid([
-    "1101",
-    "1101",
-    "0001",
-    "1111",
-  ]);
-  assert.equal(floodFill(cells, cols, rows, 0, 0, 2), true);
-  assert.deepEqual(toLines(cells, cols), ["2201", "2201", "0001", "1111"]);
-});
-
-test("floodFill は1マスのブラシで斜めに引いた線を角から越えない", () => {
-  const cols = 6;
-  const rows = 6;
-  const cells = new Uint8Array(cols * rows).fill(1);
-  for (const { col, row } of lineCells(5, 0, 0, 5)) paintBrush(cells, cols, rows, col, row, 1, 0);
-  assert.equal(floodFill(cells, cols, rows, 0, 0, 2), true);
-  assert.deepEqual(toLines(cells, cols), [
-    "222220",
-    "222201",
-    "222011",
-    "220111",
-    "201111",
-    "011111",
-  ]);
-});
-
-test("floodFill は触れたマスが既に選んだ色なら何もせず false を返す", () => {
-  const { cells, cols, rows } = grid(["0011", "0011"]);
-  assert.equal(floodFill(cells, cols, rows, 0, 0, 0), false);
-  assert.deepEqual(toLines(cells, cols), ["0011", "0011"]);
-});
-
-test("floodFill は全部同じ値の 16×12 を塗り切る", () => {
-  const cells = new Uint8Array(16 * 12).fill(1);
-  assert.equal(floodFill(cells, 16, 12, 7, 5, 2), true);
-  assert.ok(cells.every((value) => value === 2));
+test("paintCell は変わったら true、同じ値なら false を返す", () => {
+  const { cells, cols } = grid(["1111", "1111", "1111"]);
+  assert.equal(paintCell(cells, cols, 1, 1, 0), true);
+  assert.deepEqual(toLines(cells, cols), ["1111", "1011", "1111"]);
+  assert.equal(paintCell(cells, cols, 1, 1, 0), false);
 });
 
 test("cellAt は位置からマスを出し、外と右端・下端ちょうどは null にする", () => {
